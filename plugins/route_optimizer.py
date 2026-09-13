@@ -4,6 +4,7 @@ import urllib.parse
 from datetime import datetime
 
 from models import db, Booking, RoutePlan
+from tz_util import now_local, now_iso
 
 
 class RouteOptimizer:
@@ -104,7 +105,7 @@ class RouteOptimizer:
             }),
             total_distance_km=grand_km,
             total_time_min=grand_min,
-            created_at=datetime.now().isoformat(),
+            created_at=now_iso(),
         )
         db.session.add(plan)
         db.session.commit()

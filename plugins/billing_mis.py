@@ -1,4 +1,5 @@
 from datetime import datetime
+from tz_util import now_local, now_iso
 
 
 class BillingMIS:
@@ -13,7 +14,7 @@ class BillingMIS:
             "amount": float(amount),
             "description": description,
             "status": "pending",
-            "created_at": datetime.now().isoformat()
+            "created_at": now_iso()
         }
         self.invoices.append(invoice)
         return invoice
@@ -22,7 +23,7 @@ class BillingMIS:
         for inv in self.invoices:
             if inv["id"] == invoice_id:
                 inv["status"] = "paid"
-                inv["paid_at"] = datetime.now().isoformat()
+                inv["paid_at"] = now_iso()
                 return True
         return False
 

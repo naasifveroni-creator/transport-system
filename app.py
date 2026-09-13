@@ -23,6 +23,7 @@ app.secret_key = os.environ.get("SECRET_KEY", "dev-fallback-key")
 
 # ---- Database setup ----
 from models import db, User as DBUser, Penalty, Driver, Booking, Waybill, TripHistory, GlobalTimeSlot, CampaignTimeSlot, Invoice, DriverPosition, RoutePlan
+from tz_util import now_local, now_iso
 
 database_url = os.environ.get("DATABASE_URL")
 if not database_url:
@@ -409,7 +410,7 @@ def admin_apply_penalty():
     penalty_record = {
         'amount': penalty_amount,
         'reason': reason,
-        'timestamp': datetime.now().isoformat()
+        'timestamp': now_iso()
     }
     data['users'][agent_id]['penalties'].append(penalty_record)
 
@@ -695,7 +696,7 @@ def admin_process_waybills(driver_id):
                 dropoff=trip['dropoff'],
                 amount=trip['cost'],
                 status='pending',
-                created_at=datetime.now().isoformat(),
+                created_at=now_iso(),
             ))
 
         driver_data['waybills'] = []
@@ -805,7 +806,7 @@ def admin_clear_daily_bookings():
         return "Unauthorized", 403
 
     data = load_data()
-    today_date = datetime.now().strftime('%Y-%m-%d')
+    today_date = now_local().strftime('%Y-%m-%d')
     data['bookings'] = [b for b in data['bookings'] if b.get('date_time', '').split(' ')[0] >= today_date]
     save_data(data)
     return redirect(url_for('admin_dashboard', reset_success=True))
@@ -1081,7 +1082,7 @@ def confirm_entry():
         for booking in data['bookings']:
             if booking == original_booking:
                 booking['status'] = 'in-progress'
-                booking['trip_start_time'] = datetime.now().isoformat()
+                booking['trip_start_time'] = now_iso()
                 save_data(data)
                 break
 
@@ -1103,7 +1104,7 @@ def complete_trip():
         unique_id = f"{booking['user_id']}-{booking['pickup']}-{booking['dropoff']}-{booking['date_time']}"
         if unique_id == booking_id and booking['status'] == 'in-progress':
             booking['status'] = 'completed'
-            booking['trip_end_time'] = datetime.now().isoformat()
+            booking['trip_end_time'] = now_iso()
             booking_found = True
             break
 
@@ -1204,7 +1205,7 @@ def admin_mark_invoice_paid(invoice_id):
     if not inv:
         return "Invoice not found", 404
     inv.status = 'paid'
-    inv.paid_at = datetime.now().isoformat()
+    inv.paid_at = now_iso()
     db.session.commit()
     return redirect(url_for('admin_billing'))
 

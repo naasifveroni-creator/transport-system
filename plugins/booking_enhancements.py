@@ -1,4 +1,5 @@
 from datetime import datetime
+from tz_util import now_local, now_iso
 
 DEFAULT_SLOTS = [
     '6pm', '7pm', '8pm', '9pm', '10pm', '11pm', '12pm',
@@ -25,6 +26,6 @@ def validate_booking_time(date_time_str):
         dt = datetime.fromisoformat(date_time_str.replace('Z', ''))
     except ValueError:
         return False, "Invalid date/time format."
-    if dt < datetime.now():
+    if dt < now_local():
         return False, "Booking time is in the past."
     return True, ""

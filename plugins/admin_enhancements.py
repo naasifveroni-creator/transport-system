@@ -1,3 +1,6 @@
+from tz_util import now_iso
+
+
 class AdminUserManager:
     """
     Wrapper around the JSON data store used by app.py.
@@ -19,7 +22,6 @@ class AdminUserManager:
         return data.get("drivers", {})
 
     def apply_penalty(self, username, amount, reason="Penalty applied"):
-        from datetime import datetime
         data = self.load_data()
         user = data.get("users", {}).get(username)
         if not user or user.get("is_admin") or user.get("is_driver"):
@@ -28,7 +30,7 @@ class AdminUserManager:
         user.setdefault("penalties", []).append({
             "amount": float(amount),
             "reason": reason,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": now_iso()
         })
         self.save_data(data)
         return True

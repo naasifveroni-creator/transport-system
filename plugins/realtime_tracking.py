@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from models import db, DriverPosition
+from tz_util import now_local, now_iso
 
 
 class RealTimeTracker:
@@ -21,7 +22,7 @@ class RealTimeTracker:
             speed=float(speed or 0),
             heading=float(heading or 0),
             route=route or '',
-            recorded_at=datetime.now().isoformat(),
+            recorded_at=now_iso(),
         )
         db.session.add(pos)
         db.session.commit()
@@ -46,7 +47,7 @@ class RealTimeTracker:
 
     def get_track(self, driver_id, minutes=60):
         """Ordered positions for one driver within the last N minutes."""
-        cutoff = (datetime.now() - timedelta(minutes=minutes)).isoformat()
+        cutoff = (now_local() - timedelta(minutes=minutes)).isoformat()
         rows = (DriverPosition.query
                 .filter(DriverPosition.driver_id == driver_id)
                 .filter(DriverPosition.recorded_at >= cutoff)
@@ -60,7 +61,7 @@ class RealTimeTracker:
 
     def get_overview(self):
         latest = self.get_all_latest_positions()
-        now = datetime.now()
+        now = now_local()
 
         active = 0
         idle = 0
