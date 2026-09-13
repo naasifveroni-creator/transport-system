@@ -2,49 +2,193 @@
 {% block title %}Live Tracking — TFA Shuttles{% endblock %}
 
 {% block content %}
-<h2 class="mb-3">Live Vehicle Tracking</h2>
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="mb-0">Live Vehicle Tracking</h2>
+    <div class="d-flex gap-2">
+        <form method="POST" action="{{ url_for('admin_simulate_tracking') }}">
+            <button class="btn btn-primary btn-sm" type="submit">
+                Simulate movement
+            </button>
+        </form>
+        <form method="POST" action="{{ url_for('admin_clear_tracking') }}">
+            <button class="btn btn-outline-danger btn-sm" type="submit"
+                    onclick="return confirm('Clear all tracked positions?');">
+                Clear history
+            </button>
+        </form>
+    </div>
+</div>
 
-<div class="row g-3">
-    <div class="col-md-4">
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
         <div class="card stat-card"><div class="card-body">
             <div class="text-muted small">Total vehicles</div>
-            <div class="fs-3">{{ overview.total_vehicles }}</div>
+            <div class="fs-3" id="stat-total">{{ overview.total_vehicles }}</div>
         </div></div>
     </div>
-    <div class="col-md-4">
+    <div class="col-md-3">
         <div class="card stat-card"><div class="card-body">
-            <div class="text-muted small">Active</div>
-            <div class="fs-3">{{ overview.active_vehicles }}</div>
+            <div class="text-muted small">Active (last 5 min)</div>
+            <div class="fs-3" id="stat-active">{{ overview.active_vehicles }}</div>
         </div></div>
     </div>
-    <div class="col-md-4">
+    <div class="col-md-3">
         <div class="card stat-card"><div class="card-body">
             <div class="text-muted small">Idle</div>
-            <div class="fs-3">{{ overview.idle_vehicles }}</div>
+            <div class="fs-3" id="stat-idle">{{ overview.idle_vehicles }}</div>
         </div></div>
     </div>
-    <div class="col-md-4">
+    <div class="col-md-3">
         <div class="card stat-card"><div class="card-body">
-            <div class="text-muted small">Avg speed</div>
-            <div class="fs-3">{{ overview.avg_speed }}</div>
-        </div></div>
-    </div>
-    <div class="col-md-4">
-        <div class="card stat-card"><div class="card-body">
-            <div class="text-muted small">On-time rate</div>
-            <div class="fs-3">{{ overview.on_time_rate }}%</div>
-        </div></div>
-    </div>
-    <div class="col-md-4">
-        <div class="card stat-card"><div class="card-body">
-            <div class="text-muted small">Delivery completion</div>
-            <div class="fs-3">{{ overview.delivery_completion }}%</div>
+            <div class="text-muted small">Avg speed (km/h)</div>
+            <div class="fs-3" id="stat-speed">{{ overview.avg_speed }}</div>
         </div></div>
     </div>
 </div>
 
-<p class="text-muted small mt-4">
-    Positions are kept in memory by <code>RealTimeTracker</code>.
-    Add a map (e.g. Leaflet) and push updates from drivers when ready.
+<link rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<div id="map" style="height: 550px; border-radius: 8px;"></div>
+
+<p class="text-muted small mt-3">
+    Positions persist in the database. Drivers share from
+    <code>/driver/location</code>. Click <strong>Simulate movement</strong>
+    to fake driver movement for testing. Refreshes every 5 seconds.
 </p>
+
+<script>
+const map = L.map('map').setView([-26.2041, 28.0473], 12);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+    attribution: '© Esri',
+    maxZoom: 19,
+}).addTo(map);
+
+const markers = {};
+const trails = {};
+
+function dotIcon(color) {
+    return L.divIcon({
+        className: '',
+        html: `<div style="background:${color};width:16px;height:16px;
+                border-radius:50%;border:2px solid white;
+                box-shadow:0 0 4px rgba(0,0,0,0.4);"></div>`,
+        iconSize: [16, 16],
+        iconAnchor: [8, 8],
+    });
+}
+
+async function refresh() {
+    try {
+        const resp = await fetch('{{ url_for("api_positions") }}');
+        const positions = await resp.json();
+
+        const now = Date.now();
+        let active = 0, idle = 0, totalSpeed = 0, activeCount = 0;
+
+        Object.keys(markers).forEach(did => {
+            if (!positions[did]) {
+                map.removeLayer(markers[did]);
+                delete markers[did];
+                if (trails[did]) {
+                    map.removeLayer(trails[did]);
+                    delete trails[did];
+                }
+            }
+        });
+
+        for (const [did, p] of Object.entries(positions)) {
+            const ageMs = now - new Date(p.recorded_at).getTime();
+            const isActive = ageMs < 300000;
+            if (isActive) { active++; totalSpeed += p.speed || 0; activeCount++; }
+            else idle++;
+
+            const color = isActive ? '#0d6efd' : '#6c757d';
+            const popup = `<strong>${did}</strong><br>
+                           Speed: ${(p.speed||0).toFixed(1)} km/h<br>
+                           Updated: ${new Date(p.recorded_at).toLocaleTimeString()}`;
+
+            if (markers[did]) {
+                markers[did].setLatLng([p.lat, p.lng]);
+                markers[did].setPopupContent(popup);
+                markers[did].setIcon(dotIcon(color));
+            } else {
+                markers[did] = L.marker([p.lat, p.lng], { icon: dotIcon(color) })
+                    .addTo(map)
+                    .bindPopup(popup);
+            }
+
+            // Fetch trail
+            try {
+                const trailResp = await fetch(`/api/track/${encodeURIComponent(did)}?minutes=15`);
+                const trail = await trailResp.json();
+
+                // Break the trail into segments when the jump between
+                // consecutive points is more than ~5 km.
+                const segments = [];
+                let current = [];
+                const MAX_JUMP_KM = 5;
+                const toRad = d => d * Math.PI / 180;
+                const haversineKm = (a, b) => {
+                    const R = 6371;
+                    const dLat = toRad(b[0] - a[0]);
+                    const dLng = toRad(b[1] - a[1]);
+                    const lat1 = toRad(a[0]);
+                    const lat2 = toRad(b[0]);
+                    const h = Math.sin(dLat/2)**2 +
+                              Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLng/2)**2;
+                    return 2 * R * Math.asin(Math.sqrt(h));
+                };
+
+                trail.forEach(t => {
+                    const p = [t.lat, t.lng];
+                    if (current.length === 0) {
+                        current.push(p);
+                    } else {
+                        const last = current[current.length - 1];
+                        if (haversineKm(last, p) <= MAX_JUMP_KM) {
+                            current.push(p);
+                        } else {
+                            if (current.length > 1) segments.push(current);
+                            current = [p];
+                        }
+                    }
+                });
+                if (current.length > 1) segments.push(current);
+
+                // Remove the previous polyline(s) for this driver
+                if (trails[did]) {
+                    trails[did].forEach(line => map.removeLayer(line));
+                }
+                trails[did] = segments.map(seg =>
+                    L.polyline(seg, { color, weight: 3, opacity: 0.6 }).addTo(map)
+                );
+            } catch (e) { /* ignore per-driver trail errors */ }
+        }
+
+        document.getElementById('stat-total').textContent = Object.keys(positions).length;
+        document.getElementById('stat-active').textContent = active;
+        document.getElementById('stat-idle').textContent = idle;
+        document.getElementById('stat-speed').textContent =
+            activeCount ? (totalSpeed / activeCount).toFixed(1) : '0';
+
+        // Auto-fit the map to include every marker (only first time, then once per new driver)
+        const latlngs = Object.values(positions).map(p => [p.lat, p.lng]);
+        if (latlngs.length && !window.__mapFitted) {
+            if (latlngs.length === 1) {
+                map.setView(latlngs[0], 14);
+            } else {
+                map.fitBounds(latlngs, { padding: [40, 40] });
+            }
+            window.__mapFitted = true;
+        }
+    } catch (e) {
+        console.error('tracking refresh failed', e);
+    }
+}
+
+refresh();
+setInterval(refresh, 5000);
+</script>
 {% endblock %}

@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}Share Location — TFA Shuttles{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-7">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <h3 class="card-title mb-3">Share your location</h3>
+
+                <p class="text-muted">
+                    Leave this page open while you're driving. Your position
+                    is sent to the dispatcher every 30 seconds.
+                </p>
+
+                <div id="status" class="alert alert-secondary">
+                    Not started. Click the button below.
+                </div>
+
+                <button id="startBtn" class="btn btn-primary w-100 mb-2">
+                    Start sharing
+                </button>
+                <button id="stopBtn" class="btn btn-outline-danger w-100" disabled>
+                    Stop sharing
+                </button>
+
+                <hr class="my-3">
+                <div class="small text-muted" id="log">
+                    <div>— Waiting —</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let watchId = null;
+let intervalId = null;
+let lastPos = null;
+
+const statusEl = document.getElementById('status');
+const logEl = document.getElementById('log');
+const startBtn = document.getElementById('startBtn');
+const stopBtn = document.getElementById('stopBtn');
+
+function log(msg) {
+    const t = new Date().toLocaleTimeString();
+    const line = document.createElement('div');
+    line.textContent = `[${t}] ${msg}`;
+    logEl.prepend(line);
+    while (logEl.children.length > 20) logEl.removeChild(logEl.lastChild);
+}
+
+async function send() {
+    if (!lastPos) return;
+    const { latitude, longitude, speed, heading } = lastPos.coords;
+    try {
+        const resp = await fetch('{{ url_for("api_driver_position") }}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                lat: latitude,
+                lng: longitude,
+                speed: speed ? speed * 3.6 : 0,   // m/s → km/h
+                heading: heading || 0,
+            }),
+        });
+        if (resp.ok) {
+            log(`Sent ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`);
+            statusEl.className = 'alert alert-success';
+            statusEl.textContent = 'Sharing. Dispatcher can see you.';
+        } else {
+            const data = await resp.json().catch(() => ({}));
+            log(`Server rejected: ${data.error || resp.status}`);
+        }
+    } catch (e) {
+        log(`Network error: ${e.message}`);
+    }
+}
+
+function onPosition(pos) {
+    lastPos = pos;
+}
+
+function onError(err) {
+    log(`GPS error: ${err.message}`);
+    statusEl.className = 'alert alert-danger';
+    statusEl.textContent = 'GPS error: ' + err.message;
+}
+
+startBtn.addEventListener('click', () => {
+    if (!navigator.geolocation) {
+        statusEl.className = 'alert alert-danger';
+        statusEl.textContent = 'Geolocation not supported by this browser.';
+        return;
+    }
+    watchId = navigator.geolocation.watchPosition(onPosition, onError, {
+        enableHighAccuracy: true,
+        maximumAge: 5000,
+        timeout: 15000,
+    });
+    intervalId = setInterval(send, 30000);
+    // Send one immediately
+    setTimeout(send, 1000);
+
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+    statusEl.className = 'alert alert-info';
+    statusEl.textContent = 'Started. Waiting for first fix…';
+    log('Started');
+});
+
+stopBtn.addEventListener('click', () => {
+    if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+    if (intervalId !== null) clearInterval(intervalId);
+    watchId = null;
+    intervalId = null;
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    statusEl.className = 'alert alert-secondary';
+    statusEl.textContent = 'Stopped.';
+    log('Stopped');
+});
+</script>
+{% endblock %}

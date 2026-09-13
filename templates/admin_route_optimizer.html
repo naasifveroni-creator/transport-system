@@ -4,17 +4,17 @@
 {% block content %}
 <h2 class="mb-3">Route Optimizer</h2>
 
-<div class="row g-3">
+<div class="row g-3 mb-4">
     <div class="col-md-4">
         <div class="card stat-card"><div class="card-body">
-            <div class="text-muted small">Total routes</div>
+            <div class="text-muted small">Plans created</div>
             <div class="fs-3">{{ overview.total_routes }}</div>
         </div></div>
     </div>
     <div class="col-md-4">
         <div class="card stat-card"><div class="card-body">
-            <div class="text-muted small">Optimized routes</div>
-            <div class="fs-3">{{ overview.optimized_routes }}</div>
+            <div class="text-muted small">Latest distance</div>
+            <div class="fs-3">{{ overview.total_distance }} km</div>
         </div></div>
     </div>
     <div class="col-md-4">
@@ -23,28 +23,81 @@
             <div class="fs-3">{{ overview.optimization_rate }}%</div>
         </div></div>
     </div>
-    <div class="col-md-4">
-        <div class="card stat-card"><div class="card-body">
-            <div class="text-muted small">Fuel savings</div>
-            <div class="fs-3">{{ overview.fuel_savings }}</div>
-        </div></div>
-    </div>
-    <div class="col-md-4">
-        <div class="card stat-card"><div class="card-body">
-            <div class="text-muted small">Total distance</div>
-            <div class="fs-3">{{ overview.total_distance }}</div>
-        </div></div>
-    </div>
-    <div class="col-md-4">
-        <div class="card stat-card"><div class="card-body">
-            <div class="text-muted small">Time savings</div>
-            <div class="fs-3">{{ overview.time_savings }}</div>
-        </div></div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <h5 class="card-title">Plan a route</h5>
+        <form method="POST" action="{{ url_for('admin_route_optimizer') }}"
+              class="row g-2 align-items-end">
+            <div class="col-md-4">
+                <label class="form-label small">Date (YYYY-MM-DD)</label>
+                <input class="form-control" type="date" name="plan_date" required>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label small">Assign to driver (optional)</label>
+                <select class="form-select" name="driver_id">
+                    <option value="">—</option>
+                    {% for d in drivers %}
+                        <option value="{{ d }}">{{ d }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-4">
+                <button class="btn btn-primary w-100" type="submit">
+                    Optimize route
+                </button>
+            </div>
+        </form>
+        <p class="text-muted small mt-2 mb-0">
+            Uses OSRM for real road distances. Only bookings with a known
+            pickup and dropoff location are included.
+        </p>
     </div>
 </div>
 
-<p class="text-muted small mt-4">
-    Optimizer uses a basic pickup→dropoff ordering. Upgrade with real
-    geo-routing when coordinates are available.
-</p>
+<h4>Recent plans</h4>
+{% if plans %}
+<div class="accordion" id="plansAccordion">
+    {% for p in plans %}
+    <div class="accordion-item">
+        <h2 class="accordion-header">
+            <button class="accordion-button collapsed" type="button"
+                    data-bs-toggle="collapse" data-bs-target="#plan{{ p.id }}">
+                Plan #{{ p.id }} — {{ p.plan_date }}
+                {% if p.driver_id %}({{ p.driver_id }}){% endif %}
+                — {{ p.total_distance_km }} km / {{ p.total_time_min }} min
+            </button>
+        </h2>
+        <div id="plan{{ p.id }}" class="accordion-collapse collapse"
+             data-bs-parent="#plansAccordion">
+            <div class="accordion-body">
+                <table class="table table-sm mb-0">
+                    <thead>
+                        <tr>
+                            <th>#</th><th>User</th>
+                            <th>Pickup</th><th>Dropoff</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for s in p.stops %}
+                        <tr>
+                            <td>{{ loop.index }}</td>
+                            <td>{{ s.user_id }}</td>
+                            <td>{{ s.pickup }}</td>
+                            <td>{{ s.dropoff }}</td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="alert alert-info">
+    No plans yet. Pick a date above and click <strong>Optimize route</strong>.
+</div>
+{% endif %}
 {% endblock %}

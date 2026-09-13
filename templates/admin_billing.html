@@ -4,10 +4,10 @@
 {% block content %}
 <h2 class="mb-3">Billing &amp; MIS</h2>
 
-<div class="row g-3">
+<div class="row g-3 mb-4">
     <div class="col-md-3">
         <div class="card stat-card"><div class="card-body">
-            <div class="text-muted small">Total revenue</div>
+            <div class="text-muted small">Total revenue (paid)</div>
             <div class="fs-3">R {{ '%.2f'|format(overview.total_revenue) }}</div>
         </div></div>
     </div>
@@ -28,14 +28,74 @@
     </div>
     <div class="col-md-3">
         <div class="card stat-card"><div class="card-body">
-            <div class="text-muted small">Completion rate</div>
+            <div class="text-muted small">Paid / total</div>
             <div class="fs-3">{{ overview.completion_rate }}%</div>
         </div></div>
     </div>
 </div>
 
-<p class="text-muted small mt-4">
-    Billing data is currently sourced from the in-memory <code>BillingMIS</code>
-    plugin. Wire it to a database or the JSON store when you're ready.
-</p>
+<h4>Invoices</h4>
+{% if invoices %}
+<div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Driver</th>
+                <th>Date / Time</th>
+                <th>From</th>
+                <th>To</th>
+                <th>Amount</th>
+                <th>Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for inv in invoices %}
+            <tr>
+                <td>{{ inv.id }}</td>
+                <td>{{ inv.driver_id }}</td>
+                <td>{{ inv.trip_date }} {{ inv.trip_time }}</td>
+                <td>{{ inv.pickup }}</td>
+                <td>{{ inv.dropoff }}</td>
+                <td>R {{ '%.2f'|format(inv.amount) }}</td>
+                <td>
+                    <span class="badge {{ 'bg-success' if inv.status == 'paid' else 'bg-warning text-dark' }}">
+                        {{ inv.status }}
+                    </span>
+                </td>
+                <td>
+                    {% if inv.status == 'pending' %}
+                    <form method="POST"
+                          action="{{ url_for('admin_mark_invoice_paid', invoice_id=inv.id) }}"
+                          class="d-inline">
+                        <button class="btn btn-sm btn-success" type="submit">
+                            Mark paid
+                        </button>
+                    </form>
+                    {% else %}
+                        <span class="text-muted small">
+                            {{ inv.paid_at[:10] if inv.paid_at else '' }}
+                        </span>
+                    {% endif %}
+                    <form method="POST"
+                          action="{{ url_for('admin_delete_invoice', invoice_id=inv.id) }}"
+                          class="d-inline"
+                          onsubmit="return confirm('Delete invoice {{ inv.id }}?');">
+                        <button class="btn btn-sm btn-outline-danger" type="submit">
+                            Delete
+                        </button>
+                    </form>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="alert alert-info">
+    No invoices yet. Upload waybills for a driver and click <strong>Process</strong>
+    on the admin dashboard to generate them.
+</div>
+{% endif %}
 {% endblock %}

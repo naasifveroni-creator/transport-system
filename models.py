@@ -130,3 +130,80 @@ class CampaignTimeSlot(db.Model):
 
 # Alias to avoid conflict with flask_login.UserMixin in app.py
 DBUser = User
+
+
+class Invoice(db.Model):
+    __tablename__ = 'invoices'
+
+    id = db.Column(db.Integer, primary_key=True)
+    driver_id = db.Column(db.String(80), nullable=False)
+    trip_date = db.Column(db.String(40), default='')
+    trip_time = db.Column(db.String(40), default='')
+    pickup = db.Column(db.String(120), default='')
+    dropoff = db.Column(db.String(120), default='')
+    amount = db.Column(db.Float, default=0.0)
+    status = db.Column(db.String(20), default='pending')  # pending | paid
+    created_at = db.Column(db.String(64), default='')
+    paid_at = db.Column(db.String(64), nullable=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'driver_id': self.driver_id,
+            'trip_date': self.trip_date,
+            'trip_time': self.trip_time,
+            'pickup': self.pickup,
+            'dropoff': self.dropoff,
+            'amount': self.amount,
+            'status': self.status,
+            'created_at': self.created_at,
+            'paid_at': self.paid_at,
+        }
+
+
+class DriverPosition(db.Model):
+    __tablename__ = 'driver_positions'
+
+    id = db.Column(db.Integer, primary_key=True)
+    driver_id = db.Column(db.String(80), nullable=False, index=True)
+    lat = db.Column(db.Float, nullable=False)
+    lng = db.Column(db.Float, nullable=False)
+    speed = db.Column(db.Float, default=0.0)
+    heading = db.Column(db.Float, default=0.0)
+    route = db.Column(db.String(255), default='')
+    recorded_at = db.Column(db.String(64), default='')
+
+    def to_dict(self):
+        return {
+            'driver_id': self.driver_id,
+            'lat': self.lat,
+            'lng': self.lng,
+            'speed': self.speed,
+            'heading': self.heading,
+            'route': self.route,
+            'recorded_at': self.recorded_at,
+        }
+
+
+class RoutePlan(db.Model):
+    __tablename__ = 'route_plans'
+
+    id = db.Column(db.Integer, primary_key=True)
+    plan_date = db.Column(db.String(20), nullable=False, index=True)
+    driver_id = db.Column(db.String(80), default='')
+    stops_json = db.Column(db.Text, default='[]')       # JSON list of ordered stops
+    total_distance_km = db.Column(db.Float, default=0.0)
+    total_time_min = db.Column(db.Float, default=0.0)
+    created_at = db.Column(db.String(64), default='')
+
+    def to_dict(self):
+        import json
+        return {
+            'id': self.id,
+            'plan_date': self.plan_date,
+            'driver_id': self.driver_id,
+            'stops': json.loads(self.stops_json or '[]'),
+            'total_distance_km': self.total_distance_km,
+            'total_time_min': self.total_time_km if False else self.total_time_min,
+            'created_at': self.created_at,
+        }

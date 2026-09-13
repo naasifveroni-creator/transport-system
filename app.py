@@ -22,7 +22,7 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-fallback-key")
 
 # ---- Database setup ----
-from models import db, User as DBUser, Penalty, Driver, Booking, Waybill, TripHistory, GlobalTimeSlot, CampaignTimeSlot
+from models import db, User as DBUser, Penalty, Driver, Booking, Waybill, TripHistory, GlobalTimeSlot, CampaignTimeSlot, Invoice, DriverPosition, RoutePlan
 
 database_url = os.environ.get("DATABASE_URL", "sqlite:///local_dev.db")
 # Render gives postgres:// but SQLAlchemy wants postgresql://
@@ -73,6 +73,21 @@ def load_user(user_id):
 
 
 # List of valid locations and time slots
+# Approximate coordinates for each pickup/dropoff location.
+# Adjust these to your real spots.
+LOCATION_COORDS = {
+    'Blvd':         (-26.2041, 28.0473),
+    'Match Factory': (-26.2018, 28.0421),
+    'Adderly':      (-26.2055, 28.0438),
+    'Wembly Sqr':   (-26.2088, 28.0405),
+    'Campus A':     (-26.1900, 28.0300),
+    'Campus B':     (-26.1850, 28.0380),
+    'Campus C':     (-26.1970, 28.0550),
+    'Downtown':     (-26.2041, 28.0473),
+    'Airport':      (-26.1391, 28.2460),
+    'Train Station': (-26.2030, 28.0450),
+}
+
 LOCATIONS = ['Blvd', 'Match Factory', 'Adderly', 'Wembly Sqr', 'Campus A', 'Campus B', 'Campus C', 'Downtown', 'Airport', 'Train Station']
 TIME_SLOTS = ['6pm', '7pm', '8pm', '9pm', '10pm', '11pm', '12pm', '12am', '1am', '2am', '3am', '4am', '5am', '6am']
 
@@ -219,7 +234,7 @@ def save_data(data):
 time_slot_manager = TimeSlotManager("transport.db")
 business_analytics = BusinessAnalytics("transport.db")
 admin_user_manager = AdminUserManager(load_data, save_data)
-route_optimizer = RouteOptimizer("transport.db")
+route_optimizer = RouteOptimizer(coords=LOCATION_COORDS)
 real_time_tracker = RealTimeTracker()
 campaign_registrar = CampaignBulkRegistration(load_data, save_data)
 billing_mis = BillingMIS()
@@ -633,20 +648,36 @@ def admin_process_waybills(driver_id):
     pending = driver_data.get('waybills', [])
     if pending:
         driver_data.setdefault('trip_history', [])
-        # Convert waybill schema (Date/Time/Pickup/...) to trip history schema (date/time/...)
         for w in pending:
-            driver_data['trip_history'].append({
+            trip = {
                 'date': w.get('Date', '') or w.get('date', ''),
                 'time': w.get('Time', '') or w.get('time', ''),
                 'pickup': w.get('Pickup', '') or w.get('pickup', ''),
                 'dropoff': w.get('Dropoff', '') or w.get('dropoff', ''),
                 'cost': float(w.get('Cost', 0) or w.get('cost', 0) or 0),
                 'route': w.get('Route', '') or w.get('route', ''),
-            })
+            }
+            driver_data['trip_history'].append(trip)
+
+            # Create an invoice for this trip
+            db.session.add(Invoice(
+                driver_id=driver_id,
+                trip_date=trip['date'],
+                trip_time=trip['time'],
+                pickup=trip['pickup'],
+                dropoff=trip['dropoff'],
+                amount=trip['cost'],
+                status='pending',
+                created_at=datetime.now().isoformat(),
+            ))
+
         driver_data['waybills'] = []
         save_data(data)
+        db.session.commit()
 
     return redirect(url_for('admin_dashboard'))
+
+
 
 
 @app.route('/admin_assign_driver/<int:booking_id>', methods=['POST'])
@@ -660,20 +691,17 @@ def admin_assign_driver(booking_id):
         return "Missing driver_id", 400
 
     data = load_data()
-    drivers = data.get('drivers', {})
-    if driver_id not in drivers:
+    if driver_id not in data.get('drivers', {}):
         return "Driver not found", 404
 
-    # Find booking by its DB id (booking_id is the Booking.id integer)
-    from models import db as _db, Booking as _Booking
-    booking = _Booking.query.get(booking_id)
+    booking = Booking.query.get(booking_id)
     if not booking:
         return "Booking not found", 404
 
     booking.driver_id = driver_id
     if booking.status == 'unassigned':
         booking.status = 'assigned'
-    _db.session.commit()
+    db.session.commit()
 
     return redirect(url_for('admin_dashboard'))
 
@@ -1092,19 +1120,177 @@ def admin_bulk_register():
 @login_required
 def admin_billing():
     if not current_user.is_authenticated or not current_user.is_admin:
-        return redirect('/login')
+        return redirect(url_for('login'))
+
+    invoices = Invoice.query.order_by(Invoice.id.desc()).all()
+    total_revenue = sum(i.amount for i in invoices if i.status == 'paid')
+    pending_invoices = [i for i in invoices if i.status == 'pending']
+    paid_invoices = [i for i in invoices if i.status == 'paid']
+    pending_amount = sum(i.amount for i in pending_invoices)
+
+    completion_rate = 0.0
+    if invoices:
+        completion_rate = round(len(paid_invoices) / len(invoices) * 100, 2)
+
     overview = {
-        "total_revenue": 0,
-        "pending_invoices": 0,
-        "paid_invoices": 0,
-        "pending_amount": 0,
-        "revenue_trend": 0,
-        "completion_rate": 0
+        'total_revenue': total_revenue,
+        'pending_invoices': len(pending_invoices),
+        'paid_invoices': len(paid_invoices),
+        'pending_amount': pending_amount,
+        'revenue_trend': 0,
+        'completion_rate': completion_rate,
     }
-    return render_template('admin_billing.html', overview=overview)
+
+    return render_template('admin_billing.html', overview=overview, invoices=invoices)
+
+
+@app.route('/admin/mark_invoice_paid/<int:invoice_id>', methods=['POST'])
+@login_required
+def admin_mark_invoice_paid(invoice_id):
+    if not current_user.is_authenticated or not current_user.is_admin:
+        return "Unauthorized", 403
+    inv = Invoice.query.get(invoice_id)
+    if not inv:
+        return "Invoice not found", 404
+    inv.status = 'paid'
+    inv.paid_at = datetime.now().isoformat()
+    db.session.commit()
+    return redirect(url_for('admin_billing'))
+
+
+@app.route('/admin/delete_invoice/<int:invoice_id>', methods=['POST'])
+@login_required
+def admin_delete_invoice(invoice_id):
+    if not current_user.is_authenticated or not current_user.is_admin:
+        return "Unauthorized", 403
+    inv = Invoice.query.get(invoice_id)
+    if inv:
+        db.session.delete(inv)
+        db.session.commit()
+    return redirect(url_for('admin_billing'))
+
+
 
 
 # ===== ROUTE OPTIMIZER ROUTES =====
+@app.route('/api/driver_position', methods=['POST'])
+def api_driver_position():
+    """
+    Driver posts their GPS position.
+    Auth: must be logged in as a driver (or admin for the simulator).
+    """
+    if not current_user.is_authenticated:
+        return jsonify({'error': 'not logged in'}), 401
+
+    payload = request.get_json(silent=True) or {}
+
+    # Drivers can only report for themselves; admins can report for anyone
+    if current_user.is_driver:
+        driver_id = current_user.get_id()
+    else:
+        driver_id = (payload.get('driver_id') or '').strip()
+
+    if not driver_id:
+        return jsonify({'error': 'missing driver_id'}), 400
+
+    try:
+        lat = float(payload.get('lat'))
+        lng = float(payload.get('lng'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'invalid lat/lng'}), 400
+
+    real_time_tracker.update_position(
+        driver_id,
+        lat, lng,
+        speed=payload.get('speed', 0),
+        heading=payload.get('heading', 0),
+        route=payload.get('route', ''),
+    )
+    return jsonify({'ok': True})
+
+
+@app.route('/api/positions')
+@login_required
+def api_positions():
+    if not current_user.is_authenticated or not current_user.is_admin:
+        return jsonify({}), 403
+    return jsonify(real_time_tracker.get_all_latest_positions())
+
+
+@app.route('/api/track/<driver_id>')
+@login_required
+def api_track(driver_id):
+    """Return last N minutes of positions for a driver (for the map trail)."""
+    if not current_user.is_authenticated:
+        return jsonify([]), 401
+    # Drivers can only see their own track
+    if current_user.is_driver and current_user.get_id() != driver_id:
+        return jsonify([]), 403
+    minutes = int(request.args.get('minutes', 60))
+    return jsonify(real_time_tracker.get_track(driver_id, minutes=minutes))
+
+
+@app.route('/driver/location')
+@login_required
+def driver_location():
+    if not current_user.is_authenticated or not current_user.is_driver:
+        return redirect(url_for('login'))
+    return render_template('driver_location.html')
+
+
+@app.route('/admin/simulate_tracking', methods=['POST'])
+@login_required
+def admin_simulate_tracking():
+    """Move all drivers randomly around Johannesburg. Demo helper."""
+    import random
+    if not current_user.is_authenticated or not current_user.is_admin:
+        return "Unauthorized", 403
+
+    data = load_data()
+    driver_ids = list(data.get('drivers', {}).keys())
+
+    if not driver_ids:
+        return redirect(url_for('admin_live_tracking'))
+
+    spots = [
+        (-26.2041, 28.0473),
+        (-26.1076, 28.0567),
+        (-26.1438, 28.0957),
+        (-26.1999, 28.0455),
+    ]
+
+    for i, did in enumerate(driver_ids):
+        base_lat, base_lng = spots[i % len(spots)]
+        existing = real_time_tracker.get_latest_position(did)
+
+        if existing:
+            lat = existing.lat + random.uniform(-0.003, 0.003)
+            lng = existing.lng + random.uniform(-0.003, 0.003)
+        else:
+            lat = base_lat + random.uniform(-0.005, 0.005)
+            lng = base_lng + random.uniform(-0.005, 0.005)
+
+        real_time_tracker.update_position(
+            did, lat, lng,
+            speed=random.uniform(20, 80),
+            heading=random.uniform(0, 360),
+            route='Demo route',
+        )
+
+    return redirect(url_for('admin_live_tracking'))
+
+
+@app.route('/admin/clear_tracking', methods=['POST'])
+@login_required
+def admin_clear_tracking():
+    if not current_user.is_authenticated or not current_user.is_admin:
+        return "Unauthorized", 403
+    real_time_tracker.clear()
+    return redirect(url_for('admin_live_tracking'))
+
+
+
+
 @app.route('/admin/route_optimizer')
 @login_required
 def admin_route_optimizer():
@@ -1127,15 +1313,13 @@ def admin_route_optimizer():
 def admin_live_tracking():
     if not current_user.is_authenticated or not current_user.is_admin:
         return redirect('/login')
-    overview = {
-        "total_vehicles": 0,
-        "active_vehicles": 0,
-        "idle_vehicles": 0,
-        "avg_speed": 0,
-        "on_time_rate": 0,
-        "delivery_completion": 0
-    }
-    return render_template('admin_live_tracking.html', overview=overview)
+    overview = real_time_tracker.get_overview()
+    data = load_data()
+    drivers = list(data.get('drivers', {}).keys())
+    return render_template('admin_live_tracking.html',
+                           overview=overview, drivers=drivers)
+
+
 
 
 if __name__ == "__main__":
