@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Book a Shuttle — TFA Shuttles{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-7">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <h3 class="card-title mb-3">Book a shuttle</h3>
+
+                {% if error %}
+                    <div class="alert alert-danger">{{ error }}</div>
+                {% endif %}
+
+                <form method="POST" action="{{ url_for('booking') }}">
+                    <div class="mb-3">
+                        <label class="form-label" for="date_time">Date &amp; time</label>
+                        <input class="form-control" type="datetime-local"
+                               id="date_time" name="date_time" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label" for="pickup">Pickup</label>
+                        <select class="form-select" id="pickup" name="pickup" required>
+                            <option value="" disabled selected>Select pickup…</option>
+                            {% for loc in locations %}
+                                <option value="{{ loc }}">{{ loc }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label" for="dropoff">Dropoff</label>
+                        <select class="form-select" id="dropoff" name="dropoff" required>
+                            <option value="" disabled selected>Select dropoff…</option>
+                            {% for loc in locations %}
+                                <option value="{{ loc }}">{{ loc }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Suggested time slots</label>
+                        <div class="d-flex flex-wrap gap-2">
+                            {% for slot in time_slots %}
+                                <span class="badge bg-secondary">{{ slot }}</span>
+                            {% endfor %}
+                        </div>
+                        <div class="form-text">
+                            Pick a date/time above that matches one of these slots.
+                        </div>
+                    </div>
+
+                    <button class="btn btn-primary w-100" type="submit">
+                        Confirm booking
+                    </button>
+                </form>
+
+                <p class="text-center mt-3 mb-0 small">
+                    <a href="{{ url_for('user_dashboard') }}">← Back to my bookings</a>
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
