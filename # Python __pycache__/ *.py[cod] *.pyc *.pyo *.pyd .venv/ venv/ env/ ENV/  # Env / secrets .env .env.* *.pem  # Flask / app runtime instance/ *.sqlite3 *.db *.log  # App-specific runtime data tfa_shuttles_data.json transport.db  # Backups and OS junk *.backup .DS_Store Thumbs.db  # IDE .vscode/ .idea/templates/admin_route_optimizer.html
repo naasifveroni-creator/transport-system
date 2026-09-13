@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Route Optimizer — TFA Shuttles{% endblock %}
+
+{% block content %}
+<h2 class="mb-3">Route Optimizer</h2>
+
+<div class="row g-3">
+    <div class="col-md-4">
+        <div class="card stat-card"><div class="card-body">
+            <div class="text-muted small">Total routes</div>
+            <div class="fs-3">{{ overview.total_routes }}</div>
+        </div></div>
+    </div>
+    <div class="col-md-4">
+        <div class="card stat-card"><div class="card-body">
+            <div class="text-muted small">Optimized routes</div>
+            <div class="fs-3">{{ overview.optimized_routes }}</div>
+        </div></div>
+    </div>
+    <div class="col-md-4">
+        <div class="card stat-card"><div class="card-body">
+            <div class="text-muted small">Optimization rate</div>
+            <div class="fs-3">{{ overview.optimization_rate }}%</div>
+        </div></div>
+    </div>
+    <div class="col-md-4">
+        <div class="card stat-card"><div class="card-body">
+            <div class="text-muted small">Fuel savings</div>
+            <div class="fs-3">{{ overview.fuel_savings }}</div>
+        </div></div>
+    </div>
+    <div class="col-md-4">
+        <div class="card stat-card"><div class="card-body">
+            <div class="text-muted small">Total distance</div>
+            <div class="fs-3">{{ overview.total_distance }}</div>
+        </div></div>
+    </div>
+    <div class="col-md-4">
+        <div class="card stat-card"><div class="card-body">
+            <div class="text-muted small">Time savings</div>
+            <div class="fs-3">{{ overview.time_savings }}</div>
+        </div></div>
+    </div>
+</div>
+
+<p class="text-muted small mt-4">
+    Optimizer uses a basic pickup→dropoff ordering. Upgrade with real
+    geo-routing when coordinates are available.
+</p>
+{% endblock %}
