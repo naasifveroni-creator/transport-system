@@ -19,7 +19,7 @@ import io
 from datetime import datetime
 
 app = Flask(__name__)
-app.secret_key = 'your_secret_key_here'
+app.secret_key = os.environ.get("SECRET_KEY", "dev-fallback-key")
 
 # Configure Flask-Login
 login_manager = LoginManager()
@@ -62,7 +62,7 @@ TIME_SLOTS = ['6pm', '7pm', '8pm', '9pm', '10pm', '11pm', '12pm', '12am', '1am',
 def load_data():
     if not os.path.exists('tfa_shuttles_data.json'):
         with open('tfa_shuttles_data.json', 'w') as f:
-            admin_password = generate_password_hash('password')
+            admin_password = generate_password_hash('TroyWy@tt01!')
             initial_data = {
                 'users': {
                     'admin': {
@@ -882,4 +882,6 @@ def admin_live_tracking():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    import os
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)
