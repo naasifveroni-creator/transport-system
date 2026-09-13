@@ -2,39 +2,273 @@
 {% block title %}Analytics — TFA Shuttles{% endblock %}
 
 {% block content %}
-<h2 class="mb-3">Business Analytics</h2>
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="mb-0">Business Analytics</h2>
+    <a class="btn btn-outline-primary btn-sm" href="{{ url_for('admin_reports') }}">
+        Detailed reports →
+    </a>
+</div>
 
-<div class="row g-3">
-    {% set cards = [
-        ('Total bookings', metrics.total_bookings, 'primary'),
-        ('Completed', metrics.completed_bookings, 'success'),
-        ('In progress', metrics.in_progress_bookings, 'warning'),
-        ('Unassigned', metrics.unassigned_bookings, 'secondary'),
-        ('Total drivers', metrics.total_drivers, 'info'),
-        ('Total users', metrics.total_users, 'dark'),
-    ] %}
-    {% for label, value, color in cards %}
-    <div class="col-md-4 col-lg-3">
-        <div class="card stat-card border-{{ color }}">
-            <div class="card-body">
-                <div class="text-muted small">{{ label }}</div>
-                <div class="fs-3">{{ value }}</div>
+{# ---- Filter bar ---- #}
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="GET" action="{{ url_for('admin_analytics') }}"
+              class="row g-2 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label small">From</label>
+                <input class="form-control" type="date" name="start" value="{{ start }}">
             </div>
-        </div>
-    </div>
-    {% endfor %}
-    <div class="col-md-4 col-lg-3">
-        <div class="card stat-card border-success">
-            <div class="card-body">
-                <div class="text-muted small">Completion rate</div>
-                <div class="fs-3">{{ metrics.completion_rate }}%</div>
+            <div class="col-md-3">
+                <label class="form-label small">To</label>
+                <input class="form-control" type="date" name="end" value="{{ end }}">
             </div>
-        </div>
+            <div class="col-md-3">
+                <button class="btn btn-primary" type="submit">Apply filter</button>
+                <a class="btn btn-outline-secondary" href="{{ url_for('admin_analytics') }}">Reset</a>
+            </div>
+            <div class="col-md-3 text-end small text-muted">
+                Showing: <strong>{{ overview.period_start }}</strong> → <strong>{{ overview.period_end }}</strong>
+            </div>
+        </form>
     </div>
 </div>
 
-<p class="text-muted small mt-4">
-    Metrics are read live from the database. Data appears as bookings,
-    users, and drivers are created through the app.
-</p>
+{# ---- KPI Cards ---- #}
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <div class="card stat-card"><div class="card-body">
+            <div class="text-muted small">Total bookings</div>
+            <div class="d-flex align-items-baseline gap-2">
+                <div class="fs-3">{{ overview.total_bookings }}</div>
+                <span class="badge {% if overview.bookings_change >= 0 %}bg-success{% else %}bg-danger{% endif %}">
+                    {{ '%+.1f'|format(overview.bookings_change) }}%
+                </span>
+            </div>
+            <div class="small text-muted">vs previous period</div>
+        </div></div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card"><div class="card-body">
+            <div class="text-muted small">Completed</div>
+            <div class="d-flex align-items-baseline gap-2">
+                <div class="fs-3">{{ overview.completed }}</div>
+                <span class="badge {% if overview.completed_change >= 0 %}bg-success{% else %}bg-danger{% endif %}">
+                    {{ '%+.1f'|format(overview.completed_change) }}%
+                </span>
+            </div>
+            <div class="small text-muted">
+                {{ overview.completion_rate }}% completion rate
+            </div>
+        </div></div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card"><div class="card-body">
+            <div class="text-muted small">Revenue (paid)</div>
+            <div class="d-flex align-items-baseline gap-2">
+                <div class="fs-3">R {{ '%.2f'|format(overview.total_revenue) }}</div>
+                <span class="badge {% if overview.revenue_change >= 0 %}bg-success{% else %}bg-danger{% endif %}">
+                    {{ '%+.1f'|format(overview.revenue_change) }}%
+                </span>
+            </div>
+            <div class="small text-muted">
+                Pending: R {{ '%.2f'|format(overview.pending_revenue) }}
+            </div>
+        </div></div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card"><div class="card-body">
+            <div class="text-muted small">Avg trip value</div>
+            <div class="fs-3">R {{ '%.2f'|format(overview.avg_trip_value) }}</div>
+            <div class="small text-muted">
+                {{ overview.in_progress }} in progress · {{ overview.unassigned }} unassigned
+            </div>
+        </div></div>
+    </div>
+</div>
+
+{# ---- Insights strip ---- #}
+{% if insights %}
+<h5 class="mb-2">Insights</h5>
+<div class="row g-3 mb-4">
+    {% for i in insights %}
+    <div class="col-md-4 col-lg-3">
+        <div class="card h-100"><div class="card-body">
+            <div class="text-muted small">{{ i.label }}</div>
+            <div class="fs-5">{{ i.value }}</div>
+            <div class="small text-muted">{{ i.detail }}</div>
+        </div></div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+{# ---- Charts ---- #}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<div class="row g-3 mb-3">
+    <div class="col-md-8">
+        <div class="card"><div class="card-body">
+            <h6 class="card-title">Revenue (last 30 days)</h6>
+            <canvas id="revenueChart" height="100"></canvas>
+        </div></div>
+    </div>
+    <div class="col-md-4">
+        <div class="card"><div class="card-body">
+            <h6 class="card-title">Booking status</h6>
+            <canvas id="statusChart" height="200"></canvas>
+        </div></div>
+    </div>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-md-6">
+        <div class="card"><div class="card-body">
+            <h6 class="card-title">Bookings (last 30 days)</h6>
+            <canvas id="bookingsChart" height="120"></canvas>
+        </div></div>
+    </div>
+    <div class="col-md-6">
+        <div class="card"><div class="card-body">
+            <h6 class="card-title">Bookings by hour</h6>
+            <canvas id="hourlyChart" height="120"></canvas>
+        </div></div>
+    </div>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-md-6">
+        <div class="card"><div class="card-body">
+            <h6 class="card-title">Bookings by weekday</h6>
+            <canvas id="weekdayChart" height="120"></canvas>
+        </div></div>
+    </div>
+    <div class="col-md-6">
+        <div class="card"><div class="card-body">
+            <h6 class="card-title">Top routes</h6>
+            <canvas id="routesChart" height="120"></canvas>
+        </div></div>
+    </div>
+</div>
+
+{# ---- Leaderboards ---- #}
+<div class="row g-3">
+    <div class="col-md-6">
+        <div class="card"><div class="card-body">
+            <h6 class="card-title">Top drivers</h6>
+            {% if top_drivers %}
+            <table class="table table-sm mb-0">
+                <thead><tr><th>Driver</th><th class="text-end">Trips</th><th class="text-end">Revenue</th></tr></thead>
+                <tbody>
+                {% for d in top_drivers %}
+                    <tr>
+                        <td>{{ d.driver_id }}</td>
+                        <td class="text-end">{{ d.trips }}</td>
+                        <td class="text-end">R {{ '%.2f'|format(d.revenue) }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="text-muted small">No driver activity in this period.</div>
+            {% endif %}
+        </div></div>
+    </div>
+    <div class="col-md-6">
+        <div class="card"><div class="card-body">
+            <h6 class="card-title">Top users</h6>
+            {% if top_users %}
+            <table class="table table-sm mb-0">
+                <thead><tr><th>User</th><th class="text-end">Bookings</th></tr></thead>
+                <tbody>
+                {% for u in top_users %}
+                    <tr>
+                        <td>{{ u.user_id }}</td>
+                        <td class="text-end">{{ u.bookings }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="text-muted small">No user activity in this period.</div>
+            {% endif %}
+        </div></div>
+    </div>
+</div>
+
+<script>
+const PALETTE = ['#0d6efd','#dc3545','#198754','#fd7e14','#6f42c1','#20c997','#d63384','#ffc107'];
+
+function lineChart(id, labels, values, color) {
+    new Chart(document.getElementById(id), {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: values,
+                borderColor: color,
+                backgroundColor: color + '22',
+                fill: true,
+                tension: 0.3,
+                pointRadius: 2,
+            }],
+        },
+        options: {
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true } },
+        },
+    });
+}
+
+function barChart(id, labels, values, color) {
+    new Chart(document.getElementById(id), {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{ data: values, backgroundColor: color, borderRadius: 4 }],
+        },
+        options: { plugins: { legend: { display: false } },
+                   scales: { y: { beginAtZero: true } } },
+    });
+}
+
+function pieChart(id, labels, values) {
+    new Chart(document.getElementById(id), {
+        type: 'doughnut',
+        data: {
+            labels: labels,
+            datasets: [{ data: values, backgroundColor: PALETTE.slice(0, labels.length) }],
+        },
+        options: { plugins: { legend: { position: 'bottom' } } },
+    });
+}
+
+lineChart('revenueChart',
+    {{ revenue_trend.labels|tojson }},
+    {{ revenue_trend.data|tojson }},
+    '#198754');
+
+barChart('bookingsChart',
+    {{ bookings_trend.labels|tojson }},
+    {{ bookings_trend.data|tojson }},
+    '#0d6efd');
+
+pieChart('statusChart',
+    {{ status_breakdown.labels|tojson }},
+    {{ status_breakdown.data|tojson }});
+
+barChart('hourlyChart',
+    {{ hourly.labels|tojson }},
+    {{ hourly.data|tojson }},
+    '#6f42c1');
+
+barChart('weekdayChart',
+    {{ weekday.labels|tojson }},
+    {{ weekday.data|tojson }},
+    '#fd7e14');
+
+barChart('routesChart',
+    {{ top_routes.labels|tojson }},
+    {{ top_routes.data|tojson }},
+    '#20c997');
+</script>
 {% endblock %}

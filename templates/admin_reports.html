@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title %}Reports — TFA Shuttles{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="mb-0">Reports</h2>
+    <a class="btn btn-outline-secondary btn-sm"
+       href="{{ url_for('admin_analytics') }}">← Analytics</a>
+</div>
+
+{# ---- Filters ---- #}
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="GET" action="{{ url_for('admin_reports') }}"
+              class="row g-2 align-items-end">
+            <div class="col-md-2">
+                <label class="form-label small">From</label>
+                <input class="form-control" type="date" name="start" value="{{ start }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small">To</label>
+                <input class="form-control" type="date" name="end" value="{{ end }}">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small">Driver</label>
+                <select class="form-select" name="driver_id">
+                    <option value="">All drivers</option>
+                    {% for d in drivers %}
+                        <option value="{{ d }}" {% if d == driver_id %}selected{% endif %}>
+                            {{ d }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small">Status</label>
+                <select class="form-select" name="status">
+                    <option value="">All</option>
+                    {% for s in statuses %}
+                        <option value="{{ s }}" {% if s == status %}selected{% endif %}>
+                            {{ s }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <button class="btn btn-primary" type="submit">Apply filters</button>
+                <a class="btn btn-outline-secondary"
+                   href="{{ url_for('admin_reports') }}">Reset</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+{# ---- Summary cards ---- #}
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <div class="card stat-card"><div class="card-body">
+            <div class="text-muted small">Total trips</div>
+            <div class="fs-3">{{ report.summary.total_trips }}</div>
+        </div></div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card"><div class="card-body">
+            <div class="text-muted small">Total invoiced</div>
+            <div class="fs-3">R {{ '%.2f'|format(report.summary.total_invoiced) }}</div>
+        </div></div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card"><div class="card-body">
+            <div class="text-muted small">Total paid</div>
+            <div class="fs-3 text-success">R {{ '%.2f'|format(report.summary.total_paid) }}</div>
+        </div></div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card"><div class="card-body">
+            <div class="text-muted small">Total pending</div>
+            <div class="fs-3 text-warning">R {{ '%.2f'|format(report.summary.total_pending) }}</div>
+        </div></div>
+    </div>
+</div>
+
+{# ---- Actions ---- #}
+<div class="d-flex gap-2 mb-3">
+    <a class="btn btn-success"
+       href="{{ url_for('admin_reports_export', start=start, end=end, driver_id=driver_id, status=status) }}">
+        Download CSV
+    </a>
+    <span class="align-self-center text-muted small">
+        {{ report.rows|length }} rows shown
+    </span>
+</div>
+
+{# ---- Table ---- #}
+{% if report.rows %}
+<div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Date/Time</th>
+                <th>User</th>
+                <th>Driver</th>
+                <th>Pickup</th>
+                <th>Dropoff</th>
+                <th>Status</th>
+                <th>Invoice</th>
+                <th class="text-end">Amount</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for r in report.rows %}
+            <tr>
+                <td>{{ r.id }}</td>
+                <td>{{ r.date_time }}</td>
+                <td>{{ r.user_id }}</td>
+                <td>{{ r.driver_id }}</td>
+                <td>{{ r.pickup }}</td>
+                <td>{{ r.dropoff }}</td>
+                <td>
+                    <span class="badge
+                        {% if r.status == 'completed' %}bg-success
+                        {% elif r.status == 'in-progress' %}bg-warning text-dark
+                        {% elif r.status == 'unassigned' %}bg-secondary
+                        {% elif r.status == 'cancelled' %}bg-danger
+                        {% else %}bg-info text-dark{% endif %}">
+                        {{ r.status }}
+                    </span>
+                </td>
+                <td>
+                    {% if r.invoice_status == 'paid' %}
+                        <span class="badge bg-success">paid</span>
+                    {% elif r.invoice_status == 'pending' %}
+                        <span class="badge bg-warning text-dark">pending</span>
+                    {% else %}
+                        <span class="text-muted">—</span>
+                    {% endif %}
+                </td>
+                <td class="text-end">
+                    {% if r.invoice_amount %}
+                        R {{ '%.2f'|format(r.invoice_amount) }}
+                    {% else %}
+                        <span class="text-muted">—</span>
+                    {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="alert alert-info">
+    No bookings match these filters.
+</div>
+{% endif %}
+{% endblock %}

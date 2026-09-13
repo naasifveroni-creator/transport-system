@@ -289,8 +289,8 @@ def save_data(data):
 
 
 # Initialize All Plugins
-time_slot_manager = TimeSlotManager("transport.db")
-business_analytics = BusinessAnalytics("transport.db")
+time_slot_manager = TimeSlotManager()
+business_analytics = BusinessAnalytics()
 admin_user_manager = AdminUserManager(load_data, save_data)
 route_optimizer = RouteOptimizer(coords=LOCATION_COORDS)
 real_time_tracker = RealTimeTracker()
@@ -1196,7 +1196,7 @@ def complete_trip():
 def admin_time_slots():
     if not current_user.is_authenticated or not current_user.is_admin:
         return redirect(url_for('login'))
-    time_slot_mgr = TimeSlotManager("transport.db")
+    time_slot_mgr = TimeSlotManager()
     if request.method == 'POST':
         slot = request.form.get('slot', '').strip()
         campaign = request.form.get('campaign', '').strip()
@@ -1214,10 +1214,102 @@ def admin_time_slots():
 def admin_analytics():
     if not current_user.is_authenticated or not current_user.is_admin:
         return redirect(url_for('login'))
-    business_analytics = BusinessAnalytics("transport.db")
-    metrics = business_analytics.get_dashboard_metrics()
-    return render_template('admin_analytics.html', metrics=metrics)
 
+    start = request.args.get('start', '').strip() or None
+    end = request.args.get('end', '').strip() or None
+
+    ba = BusinessAnalytics()
+    overview = ba.get_overview_metrics(start, end)
+    insights = ba.get_insights(start, end)
+    revenue_trend = ba.get_revenue_trend(days=30)
+    bookings_trend = ba.get_bookings_trend(days=30)
+    status_breakdown = ba.get_status_breakdown(start, end)
+    hourly = ba.get_hourly_distribution(start, end)
+    weekday = ba.get_weekday_distribution(start, end)
+    top_routes = ba.get_top_routes(limit=8, start=start, end=end)
+    top_drivers = ba.get_top_drivers(limit=5, start=start, end=end)
+    top_users = ba.get_top_users(limit=5, start=start, end=end)
+
+    return render_template('admin_analytics.html',
+                           overview=overview,
+                           insights=insights,
+                           revenue_trend=revenue_trend,
+                           bookings_trend=bookings_trend,
+                           status_breakdown=status_breakdown,
+                           hourly=hourly,
+                           weekday=weekday,
+                           top_routes=top_routes,
+                           top_drivers=top_drivers,
+                           top_users=top_users,
+                           start=start or '',
+                           end=end or '')
+
+
+@app.route('/admin/reports')
+@login_required
+def admin_reports():
+    if not current_user.is_authenticated or not current_user.is_admin:
+        return redirect(url_for('login'))
+
+    start = request.args.get('start', '').strip() or None
+    end = request.args.get('end', '').strip() or None
+    driver_id = request.args.get('driver_id', '').strip() or None
+    status = request.args.get('status', '').strip() or None
+
+    ba = BusinessAnalytics()
+    report = ba.get_report(start=start, end=end, driver_id=driver_id, status=status)
+
+    data = load_data()
+    drivers = list(data.get('drivers', {}).keys())
+    statuses = ['unassigned', 'assigned', 'in-progress', 'completed', 'cancelled']
+
+    return render_template('admin_reports.html',
+                           report=report,
+                           drivers=drivers,
+                           statuses=statuses,
+                           start=start or '',
+                           end=end or '',
+                           driver_id=driver_id or '',
+                           status=status or '')
+
+
+@app.route('/admin/reports/export')
+@login_required
+def admin_reports_export():
+    if not current_user.is_authenticated or not current_user.is_admin:
+        return redirect(url_for('login'))
+
+    start = request.args.get('start', '').strip() or None
+    end = request.args.get('end', '').strip() or None
+    driver_id = request.args.get('driver_id', '').strip() or None
+    status = request.args.get('status', '').strip() or None
+
+    ba = BusinessAnalytics()
+    report = ba.get_report(start=start, end=end, driver_id=driver_id, status=status)
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['Booking ID', 'Date/Time', 'User', 'Driver', 'Pickup',
+                     'Dropoff', 'Status', 'Invoice Status', 'Invoice Amount'])
+
+    for r in report['rows']:
+        writer.writerow([
+            r['id'], r['date_time'], r['user_id'], r['driver_id'],
+            r['pickup'], r['dropoff'], r['status'],
+            r['invoice_status'], f"R {r['invoice_amount']:.2f}"
+        ])
+
+    writer.writerow([])
+    writer.writerow(['Summary'])
+    writer.writerow(['Total trips', report['summary']['total_trips']])
+    writer.writerow(['Total invoiced', f"R {report['summary']['total_invoiced']:.2f}"])
+    writer.writerow(['Total paid', f"R {report['summary']['total_paid']:.2f}"])
+    writer.writerow(['Total pending', f"R {report['summary']['total_pending']:.2f}"])
+
+    output.seek(0)
+    filename = f"report_{start or 'all'}_{end or 'now'}.csv"
+    return Response(output.getvalue(), mimetype='text/csv',
+                    headers={'Content-Disposition': f'attachment;filename={filename}'})
 
 @app.route('/admin/user_management')
 @login_required
