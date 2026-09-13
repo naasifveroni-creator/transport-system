@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Live Tracking — TFA Shuttles{% endblock %}
+
+{% block content %}
+<h2 class="mb-3">Live Vehicle Tracking</h2>
+
+<div class="row g-3">
+    <div class="col-md-4">
+        <div class="card stat-card"><div class="card-body">
+            <div class="text-muted small">Total vehicles</div>
+            <div class="fs-3">{{ overview.total_vehicles }}</div>
+        </div></div>
+    </div>
+    <div class="col-md-4">
+        <div class="card stat-card"><div class="card-body">
+            <div class="text-muted small">Active</div>
+            <div class="fs-3">{{ overview.active_vehicles }}</div>
+        </div></div>
+    </div>
+    <div class="col-md-4">
+        <div class="card stat-card"><div class="card-body">
+            <div class="text-muted small">Idle</div>
+            <div class="fs-3">{{ overview.idle_vehicles }}</div>
+        </div></div>
+    </div>
+    <div class="col-md-4">
+        <div class="card stat-card"><div class="card-body">
+            <div class="text-muted small">Avg speed</div>
+            <div class="fs-3">{{ overview.avg_speed }}</div>
+        </div></div>
+    </div>
+    <div class="col-md-4">
+        <div class="card stat-card"><div class="card-body">
+            <div class="text-muted small">On-time rate</div>
+            <div class="fs-3">{{ overview.on_time_rate }}%</div>
+        </div></div>
+    </div>
+    <div class="col-md-4">
+        <div class="card stat-card"><div class="card-body">
+            <div class="text-muted small">Delivery completion</div>
+            <div class="fs-3">{{ overview.delivery_completion }}%</div>
+        </div></div>
+    </div>
+</div>
+
+<p class="text-muted small mt-4">
+    Positions are kept in memory by <code>RealTimeTracker</code>.
+    Add a map (e.g. Leaflet) and push updates from drivers when ready.
+</p>
+{% endblock %}
