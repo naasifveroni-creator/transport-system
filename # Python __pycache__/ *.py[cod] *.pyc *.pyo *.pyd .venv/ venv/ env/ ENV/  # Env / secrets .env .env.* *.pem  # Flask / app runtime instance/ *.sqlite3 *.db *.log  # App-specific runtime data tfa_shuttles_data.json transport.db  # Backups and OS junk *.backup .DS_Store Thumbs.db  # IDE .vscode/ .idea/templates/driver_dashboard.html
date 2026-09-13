@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}Driver Dashboard — TFA Shuttles{% endblock %}
+
+{% block content %}
+<h2 class="mb-3">Assigned Trips</h2>
+
+{% if bookings %}
+<div class="table-responsive">
+    <table class="table table-striped align-middle">
+        <thead>
+            <tr>
+                <th>User</th>
+                <th>Date/Time</th>
+                <th>From</th>
+                <th>To</th>
+                <th>Status</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for b in bookings %}
+            {% set uid = b.user_id ~ '-' ~ b.pickup ~ '-' ~ b.dropoff ~ '-' ~ b.date_time %}
+            <tr>
+                <td>{{ b.user_id }}</td>
+                <td>{{ b.date_time }}</td>
+                <td>{{ b.pickup }}</td>
+                <td>{{ b.dropoff }}</td>
+                <td>
+                    <span class="badge
+                        {% if b.status == 'completed' %}bg-success
+                        {% elif b.status == 'in-progress' %}bg-warning text-dark
+                        {% else %}bg-info text-dark{% endif %}">
+                        {{ b.status }}
+                    </span>
+                </td>
+                <td>
+                    {% if b.status == 'in-progress' %}
+                    <form method="POST" action="{{ url_for('complete_trip') }}"
+                          class="d-inline">
+                        <input type="hidden" name="booking_id" value="{{ uid }}">
+                        <button class="btn btn-sm btn-success" type="submit">
+                            Complete trip
+                        </button>
+                    </form>
+                    {% else %}
+                        <span class="text-muted small">—</span>
+                    {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="alert alert-info">No assigned trips right now.</div>
+{% endif %}
+
+<h4 class="mt-5">Waybills &amp; trip history</h4>
+<p class="text-muted small">
+    These load from the server (uploads are handled by the admin).
+</p>
+
+<div id="waybills" class="mb-4"></div>
+<div id="trip-history"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadDriverData() {
+    try {
+        const wb = await fetch('{{ url_for("get_driver_waybills") }}').then(r => r.json());
+        const th = await fetch('{{ url_for("get_driver_trip_history") }}').then(r => r.json());
+
+        const wbDiv = document.getElementById('waybills');
+        if (wb && wb.length) {
+            wbDiv.innerHTML = `
+                <h5>Pending waybills</h5>
+                <pre class="bg-light p-3 rounded small">${JSON.stringify(wb, null, 2)}</pre>`;
+        } else {
+            wbDiv.innerHTML = '<div class="alert alert-secondary">No pending waybills.</div>';
+        }
+
+        const thDiv = document.getElementById('trip-history');
+        if (th && th.length) {
+            let rows = th.map(t => `
+                <tr>
+                    <td>${t.date || '—'}</td>
+                    <td>${t.time || '—'}</td>
+                    <td>${t.pickup || '—'}</td>
+                    <td>${t.dropoff || '—'}</td>
+                    <td>${t.cost || '—'}</td>
+                </tr>`).join('');
+            thDiv.innerHTML = `
+                <h5>Trip history</h5>
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead><tr>
+                            <th>Date</th><th>Time</th><th>Pickup</th>
+                            <th>Dropoff</th><th>Cost</th>
+                        </tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>`;
+        } else {
+            thDiv.innerHTML = '<div class="alert alert-secondary">No trip history yet.</div>';
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+loadDriverData();
+</script>
+{% endblock %}
