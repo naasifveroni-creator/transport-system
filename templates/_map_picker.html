@@ -1,0 +1,69 @@
+{# Reusable map picker. Requires: picker_id (unique suffix), lat_name, lng_name, initial_lat, initial_lng #}
+<div class="mb-3">
+    <label class="form-label">{{ label|default("Pick your location on the map") }}</label>
+    <div id="map-{{ picker_id }}" style="height: 300px; border-radius: 8px; border: 1px solid #ccc;"></div>
+    <input type="hidden" name="{{ lat_name }}" id="lat-{{ picker_id }}" value="{{ initial_lat|default('') }}">
+    <input type="hidden" name="{{ lng_name }}" id="lng-{{ picker_id }}" value="{{ initial_lng|default('') }}">
+    <div class="form-text">
+        Click on the map to set your location.
+        <span id="coords-{{ picker_id }}" class="text-muted"></span>
+    </div>
+</div>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function() {
+    const mapEl = document.getElementById('map-{{ picker_id }}');
+    if (!mapEl) return;
+
+    const initialLat = {{ initial_lat|default('null') }};
+    const initialLng = {{ initial_lng|default('null') }};
+
+    // Default to Johannesburg CBD
+    const defaultCenter = [-26.2041, 28.0473];
+    const center = (initialLat && initialLng) ? [initialLat, initialLng] : defaultCenter;
+    const zoom = (initialLat && initialLng) ? 15 : 12;
+
+    const map = L.map('map-{{ picker_id }}').setView(center, zoom);
+
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+        attribution: '© Esri',
+        maxZoom: 19,
+    }).addTo(map);
+
+    let marker = null;
+
+    function setMarker(lat, lng) {
+        if (marker) {
+            marker.setLatLng([lat, lng]);
+        } else {
+            marker = L.marker([lat, lng]).addTo(map);
+        }
+        document.getElementById('lat-{{ picker_id }}').value = lat.toFixed(6);
+        document.getElementById('lng-{{ picker_id }}').value = lng.toFixed(6);
+        const coords = document.getElementById('coords-{{ picker_id }}');
+        if (coords) {
+            coords.textContent = `(${lat.toFixed(5)}, ${lng.toFixed(5)})`;
+        }
+    }
+
+    if (initialLat && initialLng) {
+        setMarker(initialLat, initialLng);
+    }
+
+    map.on('click', function(e) {
+        setMarker(e.latlng.lat, e.latlng.lng);
+    });
+
+    // If the browser has geolocation and the user hasn't picked yet, offer to center
+    if (navigator.geolocation && !initialLat) {
+        navigator.geolocation.getCurrentPosition(function(pos) {
+            // Don't move the marker, just recenter if user hasn't picked
+            if (!marker) {
+                map.setView([pos.coords.latitude, pos.coords.longitude], 14);
+            }
+        }, function() { /* ignore */ });
+    }
+})();
+</script>

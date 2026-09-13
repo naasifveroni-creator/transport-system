@@ -78,9 +78,16 @@
                     <div class="col-6"><input class="form-control" name="username" placeholder="Username" required></div>
                     <div class="col-6"><input class="form-control" name="name" placeholder="Full name" required></div>
                     <div class="col-6"><input class="form-control" type="password" name="password" placeholder="Password" required></div>
-                    <div class="col-6"><input class="form-control" name="registered_address" placeholder="Registered address"></div>
+                    <div class="col-6"><input class="form-control" name="registered_address" placeholder="Address name (e.g. 18 Walmer Rd)"></div>
                     <div class="col-12"><input class="form-control" type="number" step="0.01" name="initial_allowance" placeholder="Initial allowance (R)"></div>
                 </div>
+
+                {% with picker_id='admin_agent', lat_name='registered_lat',
+                        lng_name='registered_lng',
+                        label="Click the agent's location on the map" %}
+                    {% include '_map_picker.html' %}
+                {% endwith %}
+
                 <button class="btn btn-primary mt-2" type="submit">Add agent</button>
             </form>
         </div></div>

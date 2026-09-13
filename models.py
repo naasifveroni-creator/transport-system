@@ -12,6 +12,8 @@ class User(db.Model):
     is_admin = db.Column(db.Boolean, default=False, nullable=False)
     is_driver = db.Column(db.Boolean, default=False, nullable=False)
     registered_address = db.Column(db.String(255), default='')
+    registered_lat = db.Column(db.Float, nullable=True)
+    registered_lng = db.Column(db.Float, nullable=True)
     travel_allowance = db.Column(db.Float, default=0.0)
 
     penalties = db.relationship('Penalty', backref='user', lazy=True,
@@ -25,6 +27,8 @@ class User(db.Model):
             'is_admin': self.is_admin,
             'is_driver': self.is_driver,
             'registered_address': self.registered_address or '',
+            'registered_lat': self.registered_lat,
+            'registered_lng': self.registered_lng,
             'travel_allowance': self.travel_allowance or 0.0,
             'penalties': [p.to_dict() for p in self.penalties],
         }
@@ -66,6 +70,10 @@ class Booking(db.Model):
     date_time = db.Column(db.String(64), default='')
     pickup = db.Column(db.String(120), default='')
     dropoff = db.Column(db.String(120), default='')
+    pickup_lat = db.Column(db.Float, nullable=True)
+    pickup_lng = db.Column(db.Float, nullable=True)
+    dropoff_lat = db.Column(db.Float, nullable=True)
+    dropoff_lng = db.Column(db.Float, nullable=True)
     status = db.Column(db.String(32), default='unassigned')
     trip_start_time = db.Column(db.String(64), nullable=True)
     trip_end_time = db.Column(db.String(64), nullable=True)
@@ -78,6 +86,10 @@ class Booking(db.Model):
             'date_time': self.date_time,
             'pickup': self.pickup,
             'dropoff': self.dropoff,
+            'pickup_lat': self.pickup_lat,
+            'pickup_lng': self.pickup_lng,
+            'dropoff_lat': self.dropoff_lat,
+            'dropoff_lng': self.dropoff_lng,
             'status': self.status,
             'trip_start_time': self.trip_start_time,
             'trip_end_time': self.trip_end_time,

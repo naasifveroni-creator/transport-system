@@ -24,7 +24,15 @@ app.secret_key = os.environ.get("SECRET_KEY", "dev-fallback-key")
 # ---- Database setup ----
 from models import db, User as DBUser, Penalty, Driver, Booking, Waybill, TripHistory, GlobalTimeSlot, CampaignTimeSlot, Invoice, DriverPosition, RoutePlan
 
-database_url = os.environ.get("DATABASE_URL", "sqlite:///local_dev.db")
+database_url = os.environ.get("DATABASE_URL")
+if not database_url:
+    import os as _os
+    _base = _os.path.abspath(_os.path.dirname(__file__))
+    database_url = f"sqlite:///{_base}/instance/local_dev.db"
+if not database_url:
+    import os as _os
+    _base = _os.path.abspath(_os.path.dirname(__file__))
+    database_url = f"sqlite:///{_base}/instance/local_dev.db"
 # Render gives postgres:// but SQLAlchemy wants postgresql://
 if database_url.startswith("postgres://"):
     database_url = database_url.replace("postgres://", "postgresql://", 1)
@@ -138,6 +146,8 @@ def load_data():
             is_admin=True,
             is_driver=False,
             registered_address='Admin Headquarters',
+            registered_lat=None,
+            registered_lng=None,
             travel_allowance=0.0,
         )
         db.session.add(admin)
@@ -164,6 +174,8 @@ def save_data(data):
         existing.is_admin = bool(u.get('is_admin', False))
         existing.is_driver = bool(u.get('is_driver', False))
         existing.registered_address = u.get('registered_address', '')
+        existing.registered_lat = u.get('registered_lat')
+        existing.registered_lng = u.get('registered_lng')
         existing.travel_allowance = float(u.get('travel_allowance', 0) or 0)
 
         Penalty.query.filter_by(username=username).delete()
@@ -194,6 +206,10 @@ def save_data(data):
             date_time=b.get('date_time', ''),
             pickup=b.get('pickup', ''),
             dropoff=b.get('dropoff', ''),
+            pickup_lat=b.get('pickup_lat'),
+            pickup_lng=b.get('pickup_lng'),
+            dropoff_lat=b.get('dropoff_lat'),
+            dropoff_lng=b.get('dropoff_lng'),
             status=b.get('status', 'unassigned'),
             trip_start_time=b.get('trip_start_time'),
             trip_end_time=b.get('trip_end_time'),
@@ -409,6 +425,15 @@ def register():
         password = request.form['password']
         registered_address = request.form.get('registered_address', '')
 
+        registered_lat = request.form.get('registered_lat', '').strip()
+        registered_lng = request.form.get('registered_lng', '').strip()
+        try:
+            registered_lat = float(registered_lat) if registered_lat else None
+            registered_lng = float(registered_lng) if registered_lng else None
+        except ValueError:
+            registered_lat = None
+            registered_lng = None
+
         data = load_data()
         if username in data['users']:
             return render_template('register.html', error="Username already exists")
@@ -421,6 +446,8 @@ def register():
             'is_admin': False,
             'is_driver': False,
             'registered_address': registered_address,
+            'registered_lat': registered_lat,
+            'registered_lng': registered_lng,
             'travel_allowance': 0,
             'penalties': []
         }
@@ -984,11 +1011,23 @@ def booking():
     data = load_data()
     user_id = current_user.get_id()
     user_data = data.get('users', {}).get(user_id, {})
-    user_address = user_data.get('registered_address', 'Unknown Location')
+    user_address = user_data.get('registered_address', '') or ''
 
     all_locations = LOCATIONS.copy()
     if user_address and user_address not in all_locations:
         all_locations.append(user_address)
+
+    def coords_for(location_name, current_user_data):
+        """Return (lat, lng) for a location name."""
+        if location_name in LOCATION_COORDS:
+            return LOCATION_COORDS[location_name]
+        # Match the user's own address
+        if location_name == current_user_data.get('registered_address'):
+            lat = current_user_data.get('registered_lat')
+            lng = current_user_data.get('registered_lng')
+            if lat is not None and lng is not None:
+                return (lat, lng)
+        return (None, None)
 
     if request.method == 'POST':
         driver_id = 'unassigned'
@@ -997,7 +1036,12 @@ def booking():
         dropoff = request.form['dropoff']
 
         if not all([date_time, pickup, dropoff]):
-            return render_template('booking.html', locations=all_locations, time_slots=TIME_SLOTS, error="All fields are required.")
+            return render_template('booking.html', locations=all_locations,
+                                   time_slots=TIME_SLOTS,
+                                   error="All fields are required.")
+
+        pickup_lat, pickup_lng = coords_for(pickup, user_data)
+        dropoff_lat, dropoff_lng = coords_for(dropoff, user_data)
 
         new_booking = {
             'user_id': user_id,
@@ -1005,6 +1049,10 @@ def booking():
             'date_time': date_time,
             'pickup': pickup,
             'dropoff': dropoff,
+            'pickup_lat': pickup_lat,
+            'pickup_lng': pickup_lng,
+            'dropoff_lat': dropoff_lat,
+            'dropoff_lng': dropoff_lng,
             'status': 'unassigned'
         }
 
@@ -1012,7 +1060,10 @@ def booking():
         save_data(data)
         return redirect(url_for('user_dashboard'))
 
-    return render_template('booking.html', locations=all_locations, time_slots=TIME_SLOTS)
+    return render_template('booking.html', locations=all_locations,
+                           time_slots=TIME_SLOTS)
+
+
 
 
 @app.route('/confirm_entry', methods=['POST'])

@@ -34,11 +34,19 @@
                         </label>
                         <input class="form-control" type="text"
                                id="registered_address"
-                               name="registered_address">
+                               name="registered_address"
+                               placeholder="e.g. 18 Walmer Road, Woodstock">
                         <div class="form-text">
-                            Used as a pickup option in bookings.
+                            Give it a name, then click your exact location on the map below.
                         </div>
                     </div>
+
+                    {% with picker_id='register', lat_name='registered_lat',
+                            lng_name='registered_lng',
+                            label='Click your exact location on the map' %}
+                        {% include '_map_picker.html' %}
+                    {% endwith %}
+
                     <button class="btn btn-primary w-100" type="submit">Register</button>
                 </form>
 

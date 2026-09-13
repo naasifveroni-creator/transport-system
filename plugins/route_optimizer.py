@@ -43,17 +43,28 @@ class RouteOptimizer:
         for b in bookings:
             if not b.date_time or not b.date_time.startswith(plan_date):
                 continue
-            pick = b.pickup
-            drop = b.dropoff
-            if pick in self.coords and drop in self.coords:
-                stops.append({
-                    'booking_id': b.id,
-                    'user_id': b.user_id,
-                    'pickup': pick,
-                    'dropoff': drop,
-                    'pickup_latlng': list(self.coords[pick]),
-                    'dropoff_latlng': list(self.coords[drop]),
-                })
+
+            # Prefer per-booking coordinates; fall back to LOCATION_COORDS lookup
+            p_lat, p_lng = b.pickup_lat, b.pickup_lng
+            d_lat, d_lng = b.dropoff_lat, b.dropoff_lng
+
+            if (p_lat is None or p_lng is None) and b.pickup in self.coords:
+                p_lat, p_lng = self.coords[b.pickup]
+            if (d_lat is None or d_lng is None) and b.dropoff in self.coords:
+                d_lat, d_lng = self.coords[b.dropoff]
+
+            if p_lat is None or p_lng is None or d_lat is None or d_lng is None:
+                # Can't route this one — skip
+                continue
+
+            stops.append({
+                'booking_id': b.id,
+                'user_id': b.user_id,
+                'pickup': b.pickup,
+                'dropoff': b.dropoff,
+                'pickup_latlng': [p_lat, p_lng],
+                'dropoff_latlng': [d_lat, d_lng],
+            })
 
         if not stops:
             return None
