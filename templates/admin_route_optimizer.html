@@ -4,6 +4,10 @@
 {% block content %}
 <h2 class="mb-3">Route Optimizer</h2>
 
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
 <div class="row g-3 mb-4">
     <div class="col-md-4">
         <div class="card stat-card"><div class="card-body">
@@ -30,18 +34,9 @@
         <h5 class="card-title">Plan a route</h5>
         <form method="POST" action="{{ url_for('admin_route_optimizer') }}"
               class="row g-2 align-items-end">
-            <div class="col-md-4">
+            <div class="col-md-5">
                 <label class="form-label small">Date (YYYY-MM-DD)</label>
                 <input class="form-control" type="date" name="plan_date" required>
-            </div>
-            <div class="col-md-4">
-                <label class="form-label small">Assign to driver (optional)</label>
-                <select class="form-select" name="driver_id">
-                    <option value="">—</option>
-                    {% for d in drivers %}
-                        <option value="{{ d }}">{{ d }}</option>
-                    {% endfor %}
-                </select>
             </div>
             <div class="col-md-4">
                 <button class="btn btn-primary w-100" type="submit">
@@ -50,40 +45,74 @@
             </div>
         </form>
         <p class="text-muted small mt-2 mb-0">
-            Uses OSRM for real road distances. Only bookings with a known
-            pickup and dropoff location are included.
+            Pick the date of the bookings you want to plan.
+            Uses OSRM for road distances, and Nominatim to look up addresses
+            that don't already have coordinates. First run may take 5–15s.
         </p>
     </div>
 </div>
 
 <h4>Recent plans</h4>
 {% if plans %}
-<div class="accordion" id="plansAccordion">
-    {% for p in plans %}
-    <div class="accordion-item">
-        <h2 class="accordion-header">
-            <button class="accordion-button collapsed" type="button"
-                    data-bs-toggle="collapse" data-bs-target="#plan{{ p.id }}">
-                Plan #{{ p.id }} — {{ p.plan_date }}
-                {% if p.driver_id %}({{ p.driver_id }}){% endif %}
-                — {{ p.total_distance_km }} km / {{ p.total_time_min }} min
-            </button>
-        </h2>
-        <div id="plan{{ p.id }}" class="accordion-collapse collapse"
-             data-bs-parent="#plansAccordion">
-            <div class="accordion-body">
-                <table class="table table-sm mb-0">
+{% for p in plans %}
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+            <strong>Plan #{{ p.id }}</strong> — {{ p.plan_date }}
+            <span class="text-muted small">
+                · {{ p.total_distance_km }} km · {{ p.total_time_min }} min
+            </span>
+        </div>
+        <button class="btn btn-sm btn-outline-secondary" type="button"
+                data-bs-toggle="collapse" data-bs-target="#plan-{{ p.id }}">
+            Show / hide
+        </button>
+    </div>
+    <div id="plan-{{ p.id }}" class="collapse {% if loop.first %}show{% endif %}">
+        <div class="card-body">
+
+            {% if p.skipped %}
+            <div class="alert alert-warning small">
+                <strong>{{ p.skipped|length }}</strong> booking(s) could not be
+                included (missing coordinates):
+                <ul class="mb-0">
+                {% for s in p.skipped %}
+                    <li>{{ s.user_id }}: {{ s.pickup }} → {{ s.dropoff }}</li>
+                {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+
+            {% if p.driver_groups %}
+            <div id="map-plan-{{ p.id }}" style="height: 420px; border-radius: 8px; border: 1px solid #ddd;"></div>
+            {% else %}
+            <div class="alert alert-info">No routable stops in this plan.</div>
+            {% endif %}
+
+            {% for g in p.driver_groups %}
+            <div class="mt-4">
+                <h5>
+                    Driver: <strong>{{ g.driver_id }}</strong>
+                    <span class="text-muted small">
+                        · {{ g.distance_km }} km · {{ g.time_min }} min
+                    </span>
+                </h5>
+                <table class="table table-sm align-middle">
                     <thead>
                         <tr>
-                            <th>#</th><th>User</th>
-                            <th>Pickup</th><th>Dropoff</th>
+                            <th style="width: 40px;">#</th>
+                            <th>User</th>
+                            <th>Time</th>
+                            <th>Pickup</th>
+                            <th>Dropoff</th>
                         </tr>
                     </thead>
                     <tbody>
-                    {% for s in p.stops %}
+                    {% for s in g.stops %}
                         <tr>
-                            <td>{{ loop.index }}</td>
+                            <td><span class="badge bg-primary">{{ loop.index }}</span></td>
                             <td>{{ s.user_id }}</td>
+                            <td>{{ s.date_time }}</td>
                             <td>{{ s.pickup }}</td>
                             <td>{{ s.dropoff }}</td>
                         </tr>
@@ -91,10 +120,97 @@
                     </tbody>
                 </table>
             </div>
+            {% endfor %}
         </div>
     </div>
-    {% endfor %}
 </div>
+{% endfor %}
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const planData = {
+    {% for p in plans %}
+    "{{ p.id }}": {
+        groups: {{ p.driver_groups|tojson }},
+    }{% if not loop.last %},{% endif %}
+    {% endfor %}
+};
+
+const DRIVER_COLORS = ['#0d6efd', '#dc3545', '#198754', '#fd7e14', '#6f42c1', '#20c997', '#d63384'];
+
+Object.entries(planData).forEach(([planId, data]) => {
+    const el = document.getElementById('map-plan-' + planId);
+    if (!el) return;
+    const map = L.map('map-plan-' + planId);
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+        attribution: '© Esri',
+        maxZoom: 19,
+    }).addTo(map);
+
+    const allPoints = [];
+
+    data.groups.forEach((group, gi) => {
+        const color = DRIVER_COLORS[gi % DRIVER_COLORS.length];
+        const linePoints = [];
+        group.stops.forEach((stop, si) => {
+            const pLatLng = stop.pickup_latlng;
+            const dLatLng = stop.dropoff_latlng;
+            linePoints.push(pLatLng);
+            linePoints.push(dLatLng);
+            allPoints.push(pLatLng, dLatLng);
+
+            L.marker(pLatLng, {
+                icon: L.divIcon({
+                    className: '',
+                    html: `<div style="background:${color};color:white;width:24px;height:24px;
+                            border-radius:50%;display:flex;align-items:center;justify-content:center;
+                            font-size:12px;font-weight:bold;border:2px solid white;
+                            box-shadow:0 0 4px rgba(0,0,0,0.4);">${si + 1}</div>`,
+                    iconSize: [24, 24],
+                    iconAnchor: [12, 12],
+                }),
+            }).addTo(map).bindPopup(
+                `<strong>${group.driver_id}</strong> · stop ${si + 1}<br>
+                 <b>Pickup:</b> ${stop.pickup}<br>
+                 <b>User:</b> ${stop.user_id}`
+            );
+
+            L.circleMarker(dLatLng, {
+                radius: 6, color: color, fillColor: color, fillOpacity: 0.6, weight: 2,
+            }).addTo(map).bindPopup(
+                `<strong>${group.driver_id}</strong> · dropoff ${si + 1}<br>
+                 ${stop.dropoff}<br>User: ${stop.user_id}`
+            );
+        });
+        if (linePoints.length > 1) {
+            L.polyline(linePoints, { color, weight: 3, opacity: 0.7 }).addTo(map);
+        }
+    });
+
+    if (allPoints.length) {
+        if (allPoints.length === 1) {
+            map.setView(allPoints[0], 14);
+        } else {
+            map.fitBounds(allPoints, { padding: [40, 40] });
+        }
+    } else {
+        map.setView([-26.2041, 28.0473], 11);
+    }
+});
+
+// When a collapsed plan is opened, tell Leaflet to redraw (fixes grey tiles)
+document.querySelectorAll('.collapse').forEach(el => {
+    el.addEventListener('shown.bs.collapse', () => {
+        Object.values(window).forEach(() => {});
+        // No-op; Leaflet invalidateSize needed if map was hidden
+        document.querySelectorAll('.leaflet-container').forEach(c => {
+            c._leaflet_map && c._leaflet_map.invalidateSize();
+        });
+    });
+});
+</script>
+
 {% else %}
 <div class="alert alert-info">
     No plans yet. Pick a date above and click <strong>Optimize route</strong>.

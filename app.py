@@ -84,16 +84,16 @@ def load_user(user_id):
 # Approximate coordinates for each pickup/dropoff location.
 # Adjust these to your real spots.
 LOCATION_COORDS = {
-    'Blvd':         (-26.2041, 28.0473),
-    'Match Factory': (-26.2018, 28.0421),
-    'Adderly':      (-26.2055, 28.0438),
-    'Wembly Sqr':   (-26.2088, 28.0405),
-    'Campus A':     (-26.1900, 28.0300),
-    'Campus B':     (-26.1850, 28.0380),
-    'Campus C':     (-26.1970, 28.0550),
-    'Downtown':     (-26.2041, 28.0473),
-    'Airport':      (-26.1391, 28.2460),
-    'Train Station': (-26.2030, 28.0450),
+    'Blvd':          (-33.931148, 18.440552),  # Boulevard Office Park, Searle St, Woodstock
+    'Match Factory': (-33.927400, 18.439100),  # Match Factory, Woodstock
+    'Adderly':       (-33.924800, 18.423200),  # Adderley Street, CBD
+    'Wembly Sqr':    (-33.929600, 18.442200),  # Wembley Square, Gardens
+    'Campus A':      (-33.957500, 18.461000),  # UCT lower campus
+    'Campus B':      (-33.957800, 18.460300),  # UCT upper campus
+    'Campus C':      (-33.932500, 18.456900),  # CPUT District Six
+    'Downtown':      (-33.924900, 18.424100),  # CBD centre
+    'Airport':       (-33.970500, 18.597200),  # Cape Town International
+    'Train Station': (-33.922200, 18.424600),  # Cape Town Station
 }
 
 LOCATIONS = ['Blvd', 'Match Factory', 'Adderly', 'Wembly Sqr', 'Campus A', 'Campus B', 'Campus C', 'Downtown', 'Airport', 'Train Station']
@@ -1342,21 +1342,33 @@ def admin_clear_tracking():
 
 
 
-@app.route('/admin/route_optimizer')
+@app.route('/admin/route_optimizer', methods=['GET', 'POST'])
 @login_required
 def admin_route_optimizer():
     if not current_user.is_authenticated or not current_user.is_admin:
         return redirect('/login')
-    overview = {
-        "total_routes": 0,
-        "optimized_routes": 0,
-        "fuel_savings": 0,
-        "total_distance": 0,
-        "time_savings": 0,
-        "optimization_rate": 0
-    }
-    return render_template('admin_route_optimizer.html', overview=overview)
 
+    optimizer = RouteOptimizer(coords=LOCATION_COORDS)
+    error = None
+
+    if request.method == 'POST':
+        plan_date = request.form.get('plan_date', '').strip()
+        if not plan_date:
+            error = "Please pick a date."
+        else:
+            try:
+                plan = optimizer.plan_for_date(plan_date)
+                if plan is None:
+                    error = f"No bookings found for {plan_date}."
+            except Exception as e:
+                error = f"Optimizer failed: {e}"
+        if not error:
+            return redirect(url_for('admin_route_optimizer'))
+
+    overview = optimizer.get_overview()
+    plans = optimizer.get_recent_plans(limit=10)
+    return render_template('admin_route_optimizer.html',
+                           overview=overview, plans=plans, error=error)
 
 # ===== LIVE TRACKING ROUTES =====
 @app.route('/admin/live_tracking')

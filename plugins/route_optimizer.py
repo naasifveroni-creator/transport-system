@@ -3,18 +3,19 @@ import urllib.request
 import urllib.parse
 from datetime import datetime
 
-from models import db, RoutePlan, Booking
+from models import db, Booking, RoutePlan
 
 
 class RouteOptimizer:
     OSRM_BASE = 'https://router.project-osrm.org'
-    AVG_SPEED_KMH = 35.0  # fallback when OSRM time unavailable
+    NOMINATIM_BASE = 'https://nominatim.openstreetmap.org'
+    USER_AGENT = 'TFA-Shuttles-RouteOptimizer/1.0'
+    AVG_SPEED_KMH = 35.0
 
     def __init__(self, coords=None):
-        # coords: {location_name: (lat, lng)}
         self.coords = coords or {}
 
-    # ---------- public API ----------
+    # ---------- public ----------
 
     def get_overview(self):
         total = RoutePlan.query.count()
@@ -22,62 +23,87 @@ class RouteOptimizer:
         return {
             'total_routes': total,
             'optimized_routes': total,
-            'fuel_savings': round(latest.total_distance_km * 0.15, 1) if latest else 0,
+            'fuel_savings': 0,
             'total_distance': round(latest.total_distance_km, 1) if latest else 0,
             'time_savings': 0,
             'optimization_rate': 100 if total else 0,
         }
 
-    def get_recent_plans(self, limit=20):
+    def get_recent_plans(self, limit=10):
         rows = RoutePlan.query.order_by(RoutePlan.id.desc()).limit(limit).all()
         return [self._plan_to_dict(r) for r in rows]
 
-    def plan_for_date(self, plan_date, driver_id=''):
-        """
-        Take all unassigned bookings for a date, optimize order, save plan.
-        Returns the plan dict.
-        """
-        # Fetch bookings for that date
-        bookings = Booking.query.all()
-        stops = []
-        for b in bookings:
-            if not b.date_time or not b.date_time.startswith(plan_date):
+    def get_bookings_for_date(self, plan_date):
+        """Loose date match — accepts 2026-09-14 or 2026-09-14T18:00."""
+        all_bookings = Booking.query.all()
+        matched = []
+        for b in all_bookings:
+            if not b.date_time:
                 continue
+            if b.date_time[:10] == plan_date or plan_date in b.date_time:
+                matched.append(b)
+        return matched
 
-            # Prefer per-booking coordinates; fall back to LOCATION_COORDS lookup
-            p_lat, p_lng = b.pickup_lat, b.pickup_lng
-            d_lat, d_lng = b.dropoff_lat, b.dropoff_lng
-
-            if (p_lat is None or p_lng is None) and b.pickup in self.coords:
-                p_lat, p_lng = self.coords[b.pickup]
-            if (d_lat is None or d_lng is None) and b.dropoff in self.coords:
-                d_lat, d_lng = self.coords[b.dropoff]
-
-            if p_lat is None or p_lng is None or d_lat is None or d_lng is None:
-                # Can't route this one — skip
-                continue
-
-            stops.append({
-                'booking_id': b.id,
-                'user_id': b.user_id,
-                'pickup': b.pickup,
-                'dropoff': b.dropoff,
-                'pickup_latlng': [p_lat, p_lng],
-                'dropoff_latlng': [d_lat, d_lng],
-            })
-
-        if not stops:
+    def plan_for_date(self, plan_date):
+        bookings = self.get_bookings_for_date(plan_date)
+        if not bookings:
             return None
 
-        ordered = self._solve_nearest_neighbor(stops)
-        distance_km, time_min = self._total_route_distance(ordered)
+        # Fill in missing coordinates
+        for b in bookings:
+            if b.pickup_lat is None or b.pickup_lng is None:
+                c = self._resolve_coords(b.pickup)
+                if c:
+                    b.pickup_lat, b.pickup_lng = c
+            if b.dropoff_lat is None or b.dropoff_lng is None:
+                c = self._resolve_coords(b.dropoff)
+                if c:
+                    b.dropoff_lat, b.dropoff_lng = c
+        db.session.commit()
+
+        # Group by driver
+        groups = {}
+        for b in bookings:
+            groups.setdefault(b.driver_id or 'unassigned', []).append(b)
+
+        driver_groups = []
+        grand_km = 0.0
+        grand_min = 0.0
+        skipped = []
+
+        for driver_id, group in groups.items():
+            stops = self._stops_from_bookings(group)
+            for b in group:
+                if b.pickup_lat is None or b.dropoff_lat is None:
+                    skipped.append({
+                        'booking_id': b.id,
+                        'user_id': b.user_id,
+                        'pickup': b.pickup,
+                        'dropoff': b.dropoff,
+                        'reason': 'missing coordinates',
+                    })
+            if not stops:
+                continue
+            ordered = self._solve_nearest_neighbor(stops)
+            km, mins = self._route_distance(ordered)
+            grand_km += km
+            grand_min += mins
+            driver_groups.append({
+                'driver_id': driver_id,
+                'stops': ordered,
+                'distance_km': km,
+                'time_min': mins,
+            })
 
         plan = RoutePlan(
             plan_date=plan_date,
-            driver_id=driver_id or '',
-            stops_json=json.dumps(ordered),
-            total_distance_km=distance_km,
-            total_time_min=time_min,
+            driver_id='',
+            stops_json=json.dumps({
+                'driver_groups': driver_groups,
+                'skipped': skipped,
+            }),
+            total_distance_km=grand_km,
+            total_time_min=grand_min,
             created_at=datetime.now().isoformat(),
         )
         db.session.add(plan)
@@ -87,70 +113,103 @@ class RouteOptimizer:
     # ---------- internals ----------
 
     def _plan_to_dict(self, row):
+        raw = json.loads(row.stops_json or '{}')
+        # Backward compatibility with old flat-list plans
+        if isinstance(raw, list):
+            driver_groups = [{'driver_id': row.driver_id or 'all', 'stops': raw,
+                              'distance_km': row.total_distance_km,
+                              'time_min': row.total_time_min}]
+            skipped = []
+        else:
+            driver_groups = raw.get('driver_groups', [])
+            skipped = raw.get('skipped', [])
         return {
             'id': row.id,
             'plan_date': row.plan_date,
-            'driver_id': row.driver_id,
-            'stops': json.loads(row.stops_json or '[]'),
+            'driver_groups': driver_groups,
+            'skipped': skipped,
             'total_distance_km': row.total_distance_km,
             'total_time_min': row.total_time_min,
             'created_at': row.created_at,
         }
 
+    def _resolve_coords(self, location_name):
+        if not location_name:
+            return None
+        if location_name in self.coords:
+            return self.coords[location_name]
+        lower = location_name.strip().lower()
+        for key, val in self.coords.items():
+            if key.lower() == lower:
+                return val
+        # Nominatim
+        try:
+            q = urllib.parse.urlencode({'q': location_name, 'format': 'json', 'limit': 1})
+            url = f'{self.NOMINATIM_BASE}/search?{q}'
+            req = urllib.request.Request(url, headers={'User-Agent': self.USER_AGENT})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode())
+            if data:
+                return (float(data[0]['lat']), float(data[0]['lon']))
+        except Exception as e:
+            print(f"Geocode failed for '{location_name}': {e}")
+        return None
+
+    def _stops_from_bookings(self, bookings):
+        stops = []
+        for b in bookings:
+            if b.pickup_lat is None or b.dropoff_lat is None:
+                continue
+            stops.append({
+                'booking_id': b.id,
+                'user_id': b.user_id,
+                'pickup': b.pickup,
+                'dropoff': b.dropoff,
+                'pickup_latlng': [b.pickup_lat, b.pickup_lng],
+                'dropoff_latlng': [b.dropoff_lat, b.dropoff_lng],
+                'date_time': b.date_time,
+                'status': b.status,
+            })
+        return stops
+
     def _solve_nearest_neighbor(self, stops):
-        """
-        Greedy nearest-neighbor ordering.
-        Start from the first stop's pickup, always go to the closest remaining stop.
-        """
         if not stops:
             return []
         remaining = list(stops)
         ordered = []
         current = remaining[0]['pickup_latlng']
         while remaining:
-            nearest_idx = 0
-            nearest_dist = float('inf')
+            best_i = 0
+            best_d = float('inf')
             for i, s in enumerate(remaining):
                 d = self._haversine_km(current, s['pickup_latlng'])
-                if d < nearest_dist:
-                    nearest_dist = d
-                    nearest_idx = i
-            chosen = remaining.pop(nearest_idx)
+                if d < best_d:
+                    best_d = d
+                    best_i = i
+            chosen = remaining.pop(best_i)
             ordered.append(chosen)
             current = chosen['dropoff_latlng']
         return ordered
 
-    def _total_route_distance(self, ordered_stops):
-        """Use OSRM for real road distances between consecutive stops."""
+    def _route_distance(self, ordered_stops):
         if not ordered_stops:
             return 0.0, 0.0
-
-        # Build waypoint list: pickup then dropoff for each stop
         points = []
         for s in ordered_stops:
             points.append(tuple(s['pickup_latlng']))
             points.append(tuple(s['dropoff_latlng']))
-
-        # Try OSRM route API for the whole polyline
         try:
-            coords_str = ';'.join(f'{lng},{lat}' for lat, lng in points)
-            url = f'{self.OSRM_BASE}/route/v1/driving/{coords_str}?overview=false'
+            coord_str = ';'.join(f'{lng},{lat}' for lat, lng in points)
+            url = f'{self.OSRM_BASE}/route/v1/driving/{coord_str}?overview=false'
             with urllib.request.urlopen(url, timeout=15) as resp:
                 data = json.loads(resp.read().decode())
             if data.get('code') == 'Ok' and data.get('routes'):
-                route = data['routes'][0]
-                distance_km = route['distance'] / 1000.0
-                time_min = route['duration'] / 60.0
-                return round(distance_km, 2), round(time_min, 1)
+                r = data['routes'][0]
+                return round(r['distance'] / 1000.0, 2), round(r['duration'] / 60.0, 1)
         except Exception as e:
             print(f"OSRM failed: {e}")
-
-        # Fallback: straight-line distance
-        total_km = 0.0
-        for i in range(len(points) - 1):
-            total_km += self._haversine_km(points[i], points[i + 1])
-        time_min = (total_km / self.AVG_SPEED_KMH) * 60.0
-        return round(total_km, 2), round(time_min, 1)
+        total = sum(self._haversine_km(points[i], points[i+1]) for i in range(len(points)-1))
+        return round(total, 2), round(total / self.AVG_SPEED_KMH * 60, 1)
 
     @staticmethod
     def _haversine_km(a, b):
@@ -160,6 +219,5 @@ class RouteOptimizer:
         lat2, lng2 = math.radians(b[0]), math.radians(b[1])
         dlat = lat2 - lat1
         dlng = lng2 - lng1
-        h = (math.sin(dlat/2)**2 +
-             math.cos(lat1) * math.cos(lat2) * math.sin(dlng/2)**2)
+        h = math.sin(dlat/2)**2 + math.cos(lat1)*math.cos(lat2)*math.sin(dlng/2)**2
         return 2 * R * math.asin(math.sqrt(h))
