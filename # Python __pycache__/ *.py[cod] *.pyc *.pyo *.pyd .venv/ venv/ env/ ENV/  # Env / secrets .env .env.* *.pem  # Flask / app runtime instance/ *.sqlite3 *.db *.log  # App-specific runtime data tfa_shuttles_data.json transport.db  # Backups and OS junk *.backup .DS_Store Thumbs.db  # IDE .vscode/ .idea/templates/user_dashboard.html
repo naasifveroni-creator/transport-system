@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}My Bookings — TFA Shuttles{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="mb-0">My Bookings</h2>
+    <a class="btn btn-primary" href="{{ url_for('booking') }}">+ New booking</a>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <div class="card stat-card">
+            <div class="card-body">
+                <div class="text-muted small">Travel allowance</div>
+                <div class="fs-3">
+                    R {{ '%.2f'|format(user_data.get('travel_allowance', 0)) }}
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card stat-card">
+            <div class="card-body">
+                <div class="text-muted small">Registered address</div>
+                <div class="fs-5">
+                    {{ user_data.get('registered_address') or '—' }}
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card stat-card">
+            <div class="card-body">
+                <div class="text-muted small">Penalties on record</div>
+                <div class="fs-3">{{ penalties|length }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<h4>Current bookings</h4>
+{% if bookings %}
+<div class="table-responsive">
+    <table class="table table-striped align-middle">
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Date/Time</th>
+                <th>From</th>
+                <th>To</th>
+                <th>Status</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for b in bookings %}
+            <tr>
+                <td>{{ loop.index0 }}</td>
+                <td>{{ b.get('date_time', '—') }}</td>
+                <td>{{ b.get('pickup', '—') }}</td>
+                <td>{{ b.get('dropoff', '—') }}</td>
+                <td>
+                    <span class="badge
+                        {% if b.status == 'completed' %}bg-success
+                        {% elif b.status == 'in-progress' %}bg-warning text-dark
+                        {% elif b.status == 'unassigned' %}bg-secondary
+                        {% else %}bg-info text-dark{% endif %}">
+                        {{ b.status }}
+                    </span>
+                </td>
+                <td>
+                    {% if b.status == 'unassigned' or b.status == 'assigned' %}
+                    <form method="POST" action="{{ url_for('confirm_entry') }}"
+                          class="d-inline">
+                        <input type="hidden" name="booking_index" value="{{ loop.index0 }}">
+                        <button class="btn btn-sm btn-outline-primary"
+                                type="submit">Confirm entry</button>
+                    </form>
+                    {% else %}
+                        <span class="text-muted small">—</span>
+                    {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="alert alert-info">You have no bookings yet.</div>
+{% endif %}
+
+{% if penalties %}
+<h4 class="mt-4">Penalties</h4>
+<div class="table-responsive">
+    <table class="table table-sm">
+        <thead>
+            <tr><th>Amount</th><th>Reason</th><th>Timestamp</th></tr>
+        </thead>
+        <tbody>
+        {% for p in penalties %}
+            <tr>
+                <td>R {{ '%.2f'|format(p.get('amount', 0)) }}</td>
+                <td>{{ p.get('reason', '—') }}</td>
+                <td>{{ p.get('timestamp', '—') }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endblock %}
