@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Bulk Register — TFA Shuttles{% endblock %}
+
+{% block content %}
+<h2 class="mb-3">Bulk Agent Registration</h2>
+
+<div class="card">
+    <div class="card-body">
+        <p class="text-muted small">
+            Paste CSV rows. Header row required. Columns:
+            <code>username,name,password,registered_address</code>
+        </p>
+
+        <form method="POST" action="{{ url_for('admin_bulk_register') }}">
+            <div class="mb-3">
+                <textarea class="form-control" name="csv_text" rows="10"
+placeholder="username,name,password,registered_address
+jsmith,John Smith,secret123,12 Main Rd
+mjones,Mary Jones,hunter2,44 Oak Ave"></textarea>
+            </div>
+            <button class="btn btn-primary" type="submit">
+                Register agents
+            </button>
+        </form>
+    </div>
+</div>
+{% endblock %}
