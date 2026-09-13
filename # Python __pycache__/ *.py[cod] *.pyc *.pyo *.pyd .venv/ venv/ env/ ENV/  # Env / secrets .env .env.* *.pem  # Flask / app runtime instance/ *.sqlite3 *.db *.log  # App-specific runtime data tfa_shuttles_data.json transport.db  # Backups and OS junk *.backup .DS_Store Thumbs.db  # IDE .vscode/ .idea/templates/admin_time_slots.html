@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Time Slots — TFA Shuttles{% endblock %}
+
+{% block content %}
+<h2 class="mb-3">Time Slot Management</h2>
+
+<div class="row g-4">
+    <div class="col-md-6">
+        <div class="card"><div class="card-body">
+            <h5 class="card-title">Global time slots</h5>
+
+            <form method="POST" action="{{ url_for('admin_time_slots') }}"
+                  class="row g-2 mb-3">
+                <div class="col-7">
+                    <input class="form-control" name="slot"
+                           placeholder="e.g. 7pm" required>
+                </div>
+                <div class="col-5">
+                    <button class="btn btn-primary w-100" type="submit">
+                        Add / enable
+                    </button>
+                </div>
+            </form>
+
+            {% if global_settings %}
+            <ul class="list-group">
+                {% for s in global_settings %}
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <span>{{ s.slot }}</span>
+                    <span class="badge {{ 'bg-success' if s.enabled else 'bg-secondary' }}">
+                        {{ 'enabled' if s.enabled else 'disabled' }}
+                    </span>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <div class="alert alert-info mb-0">No global slots configured.</div>
+            {% endif %}
+        </div></div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card"><div class="card-body">
+            <h5 class="card-title">Campaign-specific slots</h5>
+
+            <form method="POST" action="{{ url_for('admin_time_slots') }}"
+                  class="row g-2 mb-3">
+                <div class="col-5">
+                    <input class="form-control" name="campaign"
+                           placeholder="Campaign name" required>
+                </div>
+                <div class="col-4">
+                    <input class="form-control" name="slot"
+                           placeholder="Slot (e.g. 8pm)" required>
+                </div>
+                <div class="col-3">
+                    <button class="btn btn-primary w-100" type="submit">
+                        Add
+                    </button>
+                </div>
+            </form>
+
+            {% if campaign_slots %}
+            <ul class="list-group">
+                {% for s in campaign_slots %}
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <span>
+                        <strong>{{ s.campaign }}</strong> —
+                        {{ s.slot }}
+                    </span>
+                    <span class="badge {{ 'bg-success' if s.enabled else 'bg-secondary' }}">
+                        {{ 'enabled' if s.enabled else 'disabled' }}
+                    </span>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <div class="alert alert-info mb-0">No campaign slots configured.</div>
+            {% endif %}
+        </div></div>
+    </div>
+</div>
+{% endblock %}
