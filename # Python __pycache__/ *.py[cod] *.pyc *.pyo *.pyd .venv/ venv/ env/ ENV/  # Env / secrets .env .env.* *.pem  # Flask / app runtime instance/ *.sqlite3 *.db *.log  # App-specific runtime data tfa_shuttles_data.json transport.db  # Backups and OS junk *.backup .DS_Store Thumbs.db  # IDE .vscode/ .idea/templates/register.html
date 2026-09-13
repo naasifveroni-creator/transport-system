@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Register — TFA Shuttles{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <h3 class="card-title mb-3">Register as agent</h3>
+
+                {% if error %}
+                    <div class="alert alert-danger">{{ error }}</div>
+                {% endif %}
+
+                <form method="POST" action="{{ url_for('register') }}">
+                    <div class="mb-3">
+                        <label class="form-label" for="username">Username</label>
+                        <input class="form-control" type="text" id="username"
+                               name="username" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="name">Full name</label>
+                        <input class="form-control" type="text" id="name"
+                               name="name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="password">Password</label>
+                        <input class="form-control" type="password" id="password"
+                               name="password" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="registered_address">
+                            Registered address
+                        </label>
+                        <input class="form-control" type="text"
+                               id="registered_address"
+                               name="registered_address">
+                        <div class="form-text">
+                            Used as a pickup option in bookings.
+                        </div>
+                    </div>
+                    <button class="btn btn-primary w-100" type="submit">Register</button>
+                </form>
+
+                <p class="text-center mt-3 mb-0 small">
+                    Already registered?
+                    <a href="{{ url_for('login') }}">Sign in</a>
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
