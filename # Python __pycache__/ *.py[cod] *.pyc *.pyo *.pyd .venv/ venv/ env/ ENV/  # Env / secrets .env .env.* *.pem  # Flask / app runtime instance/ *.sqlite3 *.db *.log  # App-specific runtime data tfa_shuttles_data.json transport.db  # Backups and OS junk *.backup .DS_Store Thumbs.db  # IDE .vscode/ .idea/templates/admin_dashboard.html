@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+{% block title %}Admin Dashboard — TFA Shuttles{% endblock %}
+
+{% block content %}
+<h2 class="mb-3">Admin Dashboard</h2>
+
+{# --- Flash-style query flags --- #}
+{% if reset_success %}<div class="alert alert-success">Daily bookings cleared.</div>{% endif %}
+{% if clear_success %}<div class="alert alert-success">Completed bookings cleared.</div>{% endif %}
+{% if driver_added %}<div class="alert alert-success">Driver added.</div>{% endif %}
+{% if agent_added %}<div class="alert alert-success">Agent added.</div>{% endif %}
+{% if history_cleared %}<div class="alert alert-success">Driver history cleared.</div>{% endif %}
+{% if penalty_applied %}<div class="alert alert-success">Penalty applied.</div>{% endif %}
+
+{# --- Stat cards --- #}
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <div class="card stat-card"><div class="card-body">
+            <div class="text-muted small">Users</div>
+            <div class="fs-3">{{ all_users|length }}</div>
+        </div></div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card"><div class="card-body">
+            <div class="text-muted small">Drivers</div>
+            <div class="fs-3">{{ all_drivers|length }}</div>
+        </div></div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card"><div class="card-body">
+            <div class="text-muted small">Bookings</div>
+            <div class="fs-3">{{ bookings|length }}</div>
+        </div></div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card"><div class="card-body">
+            <div class="text-muted small">Total trips (all drivers)</div>
+            <div class="fs-3">{{ total_trips }}</div>
+            <div class="small text-muted">
+                Cost: R {{ '%.2f'|format(total_cost) }} ·
+                Avg: R {{ '%.2f'|format(avg_cost_per_trip) }}
+            </div>
+        </div></div>
+    </div>
+</div>
+
+{# --- Quick export buttons --- #}
+<div class="mb-4 d-flex flex-wrap gap-2">
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_data') }}">Export bookings CSV</a>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_invoicing_data') }}">Export invoicing CSV</a>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_drivers_csv') }}">Export drivers CSV</a>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_agents_csv') }}">Export agents CSV</a>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_penalty_history_csv') }}">Export penalties CSV</a>
+</div>
+
+{# --- Add driver --- #}
+<div class="row g-4 mb-4">
+    <div class="col-md-6">
+        <div class="card"><div class="card-body">
+            <h5 class="card-title">Add driver</h5>
+            <form method="POST" action="{{ url_for('admin_add_driver') }}">
+                <div class="row g-2">
+                    <div class="col-6"><input class="form-control" name="username" placeholder="Username" required></div>
+                    <div class="col-6"><input class="form-control" name="name" placeholder="Full name" required></div>
+                    <div class="col-6"><input class="form-control" type="password" name="password" placeholder="Password" required></div>
+                    <div class="col-6"><input class="form-control" name="license_plate" placeholder="License plate" required></div>
+                </div>
+                <button class="btn btn-primary mt-2" type="submit">Add driver</button>
+            </form>
+        </div></div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card"><div class="card-body">
+            <h5 class="card-title">Add agent</h5>
+            <form method="POST" action="{{ url_for('admin_add_agent') }}">
+                <div class="row g-2">
+                    <div class="col-6"><input class="form-control" name="username" placeholder="Username" required></div>
+                    <div class="col-6"><input class="form-control" name="name" placeholder="Full name" required></div>
+                    <div class="col-6"><input class="form-control" type="password" name="password" placeholder="Password" required></div>
+                    <div class="col-6"><input class="form-control" name="registered_address" placeholder="Registered address"></div>
+                    <div class="col-12"><input class="form-control" type="number" step="0.01" name="initial_allowance" placeholder="Initial allowance (R)"></div>
+                </div>
+                <button class="btn btn-primary mt-2" type="submit">Add agent</button>
+            </form>
+        </div></div>
+    </div>
+</div>
+
+{# --- Apply penalty --- #}
+<div class="card mb-4"><div class="card-body">
+    <h5 class="card-title">Apply penalty to agent</h5>
+    <form method="POST" action="{{ url_for('admin_apply_penalty') }}"
+          class="row g-2 align-items-end">
+        <div class="col-md-4">
+            <label class="form-label small">Agent username</label>
+            <input class="form-control" name="agent_id" required>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label small">Amount (R)</label>
+            <input class="form-control" type="number" step="0.01"
+                   name="penalty_amount" value="50.00">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label small">Reason</label>
+            <input class="form-control" name="reason">
+        </div>
+        <div class="col-md-2">
+            <button class="btn btn-danger w-100" type="submit">Apply</button>
+        </div>
+    </form>
+</div></div>
+
+{# --- Clear actions --- #}
+<div class="d-flex gap-2 mb-4">
+    <form method="POST" action="{{ url_for('admin_clear_bookings') }}">
+        <button class="btn btn-outline-danger btn-sm" type="submit"
+                onclick="return confirm('Clear all completed bookings?');">
+            Clear completed bookings
+        </button>
+    </form>
+    <form method="POST" action="{{ url_for('admin_clear_daily_bookings') }}">
+        <button class="btn btn-outline-danger btn-sm" type="submit"
+                onclick="return confirm('Clear today\'s bookings?');">
+            Clear today's bookings
+        </button>
+    </form>
+</div>
+
+{# --- Drivers + history --- #}
+<h4>Drivers</h4>
+{% if all_drivers %}
+<div class="table-responsive mb-4">
+    <table class="table table-sm align-middle">
+        <thead>
+            <tr>
+                <th>Driver ID</th><th>Name</th><th>Plate</th>
+                <th>Trips</th><th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for did, d in all_drivers.items() %}
+            <tr>
+                <td>{{ did }}</td>
+                <td>{{ d.first_name }} {{ d.last_name }}</td>
+                <td>{{ d.license_plate }}</td>
+                <td>{{ d.trip_history|length }}</td>
+                <td>
+                    <a class="btn btn-sm btn-outline-secondary"
+                       href="{{ url_for('export_driver_trip_history_csv', driver_id=did) }}">
+                        Export history
+                    </a>
+                    <form method="POST"
+                          action="{{ url_for('admin_clear_driver_history', driver_id=did) }}"
+                          class="d-inline">
+                        <button class="btn btn-sm btn-outline-danger"
+                                onclick="return confirm('Clear history for {{ did }}?');">
+                            Clear
+                        </button>
+                    </form>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="alert alert-info">No drivers yet.</div>
+{% endif %}
+
+{# --- Upload waybill --- #}
+<div class="card mb-4"><div class="card-body">
+    <h5 class="card-title">Upload waybill (CSV) for a driver</h5>
+    <form method="POST" action="{{ url_for('upload_waybill') }}"
+          enctype="multipart/form-data" class="row g-2 align-items-end">
+        <div class="col-md-4">
+            <label class="form-label small">Driver ID</label>
+            <input class="form-control" name="driver_id" required>
+        </div>
+        <div class="col-md-5">
+            <label class="form-label small">CSV file</label>
+            <input class="form-control" type="file" name="waybill_file"
+                   accept=".csv" required>
+        </div>
+        <div class="col-md-3">
+            <button class="btn btn-primary w-100" type="submit">Upload</button>
+        </div>
+    </form>
+    <div class="form-text mt-2">
+        Expected columns: Date, Time, Pickup, Dropoff, Cost, Route (case-insensitive).
+    </div>
+</div></div>
+
+{# --- All bookings --- #}
+<h4>All bookings</h4>
+{% if bookings %}
+<div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+        <thead>
+            <tr>
+                <th>User</th><th>Driver</th><th>Date/Time</th>
+                <th>From</th><th>To</th><th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for b in bookings %}
+            <tr>
+                <td>{{ b.user_id }}</td>
+                <td>{{ b.driver_id }}</td>
+                <td>{{ b.date_time }}</td>
+                <td>{{ b.pickup }}</td>
+                <td>{{ b.dropoff }}</td>
+                <td>
+                    <span class="badge
+                        {% if b.status == 'completed' %}bg-success
+                        {% elif b.status == 'in-progress' %}bg-warning text-dark
+                        {% elif b.status == 'unassigned' %}bg-secondary
+                        {% else %}bg-info text-dark{% endif %}">
+                        {{ b.status }}
+                    </span>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="alert alert-info">No bookings yet.</div>
+{% endif %}
+
+{# --- All users --- #}
+<h4 class="mt-4">All users</h4>
+<div class="table-responsive">
+    <table class="table table-sm">
+        <thead>
+            <tr><th>Username</th><th>Name</th><th>Role</th><th>Address</th><th>Allowance</th></tr>
+        </thead>
+        <tbody>
+        {% for uname, u in all_users.items() %}
+            <tr>
+                <td>{{ uname }}</td>
+                <td>{{ u.name }}</td>
+                <td>
+                    {% if u.is_admin %}Admin
+                    {% elif u.is_driver %}Driver
+                    {% else %}Agent{% endif %}
+                </td>
+                <td>{{ u.registered_address or '—' }}</td>
+                <td>R {{ '%.2f'|format(u.get('travel_allowance', 0)) }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
