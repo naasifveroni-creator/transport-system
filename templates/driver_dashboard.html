@@ -55,57 +55,67 @@
 <div class="alert alert-info">No assigned trips right now.</div>
 {% endif %}
 
-<h4 class="mt-5">Waybills &amp; trip history</h4>
-<p class="text-muted small">
-    These load from the server (uploads are handled by the admin).
-</p>
+<h4 class="mt-5">Pending waybills</h4>
+<div id="waybills-section">
+    <div class="text-muted small">Loading…</div>
+</div>
 
-<div id="waybills" class="mb-4"></div>
-<div id="trip-history"></div>
+<h4 class="mt-4">Trip history</h4>
+<div id="trip-history-section">
+    <div class="text-muted small">Loading…</div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+function renderTable(rows, cols) {
+    if (!rows || rows.length === 0) return null;
+    let head = '<tr>' + cols.map(c => `<th>${c.label}</th>`).join('') + '</tr>';
+    let body = rows.map(r => '<tr>' + cols.map(c =>
+        `<td>${r[c.key] ?? '—'}</td>`).join('') + '</tr>').join('');
+    return `<div class="table-responsive"><table class="table table-sm">
+        <thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+}
+
 async function loadDriverData() {
     try {
-        const wb = await fetch('{{ url_for("get_driver_waybills") }}').then(r => r.json());
-        const th = await fetch('{{ url_for("get_driver_trip_history") }}').then(r => r.json());
+        const wbResp = await fetch('{{ url_for("get_driver_waybills") }}');
+        const thResp = await fetch('{{ url_for("get_driver_trip_history") }}');
+        const wb = await wbResp.json();
+        const th = await thResp.json();
 
-        const wbDiv = document.getElementById('waybills');
-        if (wb && wb.length) {
-            wbDiv.innerHTML = `
-                <h5>Pending waybills</h5>
-                <pre class="bg-light p-3 rounded small">${JSON.stringify(wb, null, 2)}</pre>`;
-        } else {
-            wbDiv.innerHTML = '<div class="alert alert-secondary">No pending waybills.</div>';
-        }
+        const wbDiv = document.getElementById('waybills-section');
+        const wbHtml = renderTable(wb, [
+            {key: 'Date', label: 'Date'},
+            {key: 'Time', label: 'Time'},
+            {key: 'Pickup', label: 'Pickup'},
+            {key: 'Dropoff', label: 'Dropoff'},
+            {key: 'Cost', label: 'Cost'},
+            {key: 'Route', label: 'Route'},
+        ]) || renderTable(wb, [
+            {key: 'date', label: 'Date'},
+            {key: 'time', label: 'Time'},
+            {key: 'pickup', label: 'Pickup'},
+            {key: 'dropoff', label: 'Dropoff'},
+            {key: 'cost', label: 'Cost'},
+            {key: 'route', label: 'Route'},
+        ]);
+        wbDiv.innerHTML = wbHtml || '<div class="alert alert-secondary">No pending waybills.</div>';
 
-        const thDiv = document.getElementById('trip-history');
-        if (th && th.length) {
-            let rows = th.map(t => `
-                <tr>
-                    <td>${t.date || '—'}</td>
-                    <td>${t.time || '—'}</td>
-                    <td>${t.pickup || '—'}</td>
-                    <td>${t.dropoff || '—'}</td>
-                    <td>${t.cost || '—'}</td>
-                </tr>`).join('');
-            thDiv.innerHTML = `
-                <h5>Trip history</h5>
-                <div class="table-responsive">
-                    <table class="table table-sm">
-                        <thead><tr>
-                            <th>Date</th><th>Time</th><th>Pickup</th>
-                            <th>Dropoff</th><th>Cost</th>
-                        </tr></thead>
-                        <tbody>${rows}</tbody>
-                    </table>
-                </div>`;
-        } else {
-            thDiv.innerHTML = '<div class="alert alert-secondary">No trip history yet.</div>';
-        }
+        const thDiv = document.getElementById('trip-history-section');
+        const thHtml = renderTable(th, [
+            {key: 'date', label: 'Date'},
+            {key: 'time', label: 'Time'},
+            {key: 'pickup', label: 'Pickup'},
+            {key: 'dropoff', label: 'Dropoff'},
+            {key: 'cost', label: 'Cost'},
+            {key: 'route', label: 'Route'},
+        ]);
+        thDiv.innerHTML = thHtml || '<div class="alert alert-secondary">No trip history yet.</div>';
     } catch (e) {
         console.error(e);
+        document.getElementById('waybills-section').innerHTML =
+            '<div class="alert alert-danger">Failed to load waybills.</div>';
     }
 }
 loadDriverData();

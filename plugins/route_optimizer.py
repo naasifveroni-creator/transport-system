@@ -1,31 +1,23 @@
-import sqlite3
+from models import Booking
 
 
 class RouteOptimizer:
-    def __init__(self, db_path="transport.db"):
-        self.db_path = db_path
-
-    def _connect(self):
-        return sqlite3.connect(self.db_path)
+    def __init__(self, db_path=None):
+        pass
 
     def get_overview(self):
-        overview = {
-            "total_routes": 0,
+        total_routes = Booking.query.count()
+        return {
+            "total_routes": total_routes,
             "optimized_routes": 0,
             "fuel_savings": 0,
             "total_distance": 0,
             "time_savings": 0,
-            "optimization_rate": 0
+            "optimization_rate": 0,
         }
-        try:
-            with self._connect() as conn:
-                cur = conn.cursor()
-                cur.execute("SELECT COUNT(*) FROM bookings")
-                overview["total_routes"] = cur.fetchone()[0]
-        except sqlite3.OperationalError:
-            pass
-        return overview
 
     def optimize(self, bookings):
-        """Return bookings sorted by pickup -> dropoff (very basic)."""
-        return sorted(bookings, key=lambda b: (b.get("pickup", ""), b.get("dropoff", "")))
+        return sorted(
+            bookings,
+            key=lambda b: (b.get("pickup", ""), b.get("dropoff", ""))
+        )

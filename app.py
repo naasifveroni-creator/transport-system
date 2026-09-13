@@ -21,6 +21,24 @@ from datetime import datetime
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-fallback-key")
 
+# ---- Database setup ----
+from models import db, User as DBUser, Penalty, Driver, Booking, Waybill, TripHistory, GlobalTimeSlot, CampaignTimeSlot
+
+database_url = os.environ.get("DATABASE_URL", "sqlite:///local_dev.db")
+# Render gives postgres:// but SQLAlchemy wants postgresql://
+if database_url.startswith("postgres://"):
+    database_url = database_url.replace("postgres://", "postgresql://", 1)
+
+app.config["SQLALCHEMY_DATABASE_URI"] = database_url
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"pool_pre_ping": True}
+
+db.init_app(app)
+
+with app.app_context():
+    db.create_all()
+
+
 # Configure Flask-Login
 login_manager = LoginManager()
 login_manager.init_app(app)
@@ -60,44 +78,141 @@ TIME_SLOTS = ['6pm', '7pm', '8pm', '9pm', '10pm', '11pm', '12pm', '12am', '1am',
 
 
 def load_data():
-    if not os.path.exists('tfa_shuttles_data.json'):
-        with open('tfa_shuttles_data.json', 'w') as f:
-            admin_password = generate_password_hash('TroyWy@tt01!')
-            initial_data = {
-                'users': {
-                    'admin': {
-                        'username': 'admin',
-                        'name': 'Admin User',
-                        'password': admin_password,
-                        'is_admin': True,
-                        'is_driver': False,
-                        'registered_address': 'Admin Headquarters',
-                        'travel_allowance': 0,
-                        'penalties': []
-                    }
-                },
-                'bookings': [],
-                'drivers': {},
-                'driver_bookings': {}
-            }
-            json.dump(initial_data, f, indent=4)
-    with open('tfa_shuttles_data.json', 'r') as f:
-        data = json.load(f)
+    """Return the whole store as a dict, backed by Postgres."""
+    users = {}
+    for u in DBUser.query.all():
+        users[u.username] = u.to_dict()
 
-    # Add travel_allowance and penalties to existing users if they don't have it
-    for username, user_data in data.get('users', {}).items():
-        if 'travel_allowance' not in user_data:
-            user_data['travel_allowance'] = 0
-        if 'penalties' not in user_data:
-            user_data['penalties'] = []
+    drivers = {}
+    for d in Driver.query.all():
+        drivers[d.username] = {
+            'first_name': d.first_name,
+            'last_name': d.last_name,
+            'license_plate': d.license_plate,
+            'waybills': [
+                {
+                    'Date': w.date, 'Time': w.time,
+                    'Pickup': w.pickup, 'Dropoff': w.dropoff,
+                    'Cost': w.cost, 'Route': w.route,
+                    'Driver_ID': w.driver_id,
+                }
+                for w in Waybill.query.filter_by(driver_id=d.username).all()
+            ],
+            'trip_history': [
+                {
+                    'date': t.date, 'time': t.time,
+                    'pickup': t.pickup, 'dropoff': t.dropoff,
+                    'cost': t.cost, 'route': t.route,
+                }
+                for t in TripHistory.query.filter_by(driver_id=d.username).all()
+            ],
+        }
 
-    save_data(data)
-    return data
+    bookings = []
+    for b in Booking.query.all():
+        bookings.append(b.to_dict())
 
+    # Seed admin if no users exist
+    if not users:
+        from werkzeug.security import generate_password_hash as _gh
+        admin_pw = os.environ.get("ADMIN_PASSWORD", "changeme")
+        admin = DBUser(
+            username='admin',
+            name='Admin User',
+            password=_gh(admin_pw),
+            is_admin=True,
+            is_driver=False,
+            registered_address='Admin Headquarters',
+            travel_allowance=0.0,
+        )
+        db.session.add(admin)
+        db.session.commit()
+        users['admin'] = admin.to_dict()
+
+    return {
+        'users': users,
+        'bookings': bookings,
+        'drivers': drivers,
+        'driver_bookings': {},
+    }
 
 def save_data(data):
-    with open('tfa_shuttles_data.json', 'w') as f:
-        json.dump(data, f, indent=4)
+    """Persist the given dict back to Postgres."""
+    # ---- Users + penalties ----
+    for username, u in data.get('users', {}).items():
+        existing = DBUser.query.get(username)
+        if not existing:
+            existing = DBUser(username=username)
+            db.session.add(existing)
+        existing.name = u.get('name', username)
+        existing.password = u.get('password', '')
+        existing.is_admin = bool(u.get('is_admin', False))
+        existing.is_driver = bool(u.get('is_driver', False))
+        existing.registered_address = u.get('registered_address', '')
+        existing.travel_allowance = float(u.get('travel_allowance', 0) or 0)
+
+        Penalty.query.filter_by(username=username).delete()
+        for p in u.get('penalties', []):
+            db.session.add(Penalty(
+                username=username,
+                amount=float(p.get('amount', 0)),
+                reason=p.get('reason', ''),
+                timestamp=p.get('timestamp', ''),
+            ))
+
+    # ---- Drivers ----
+    for username, d in data.get('drivers', {}).items():
+        existing = Driver.query.get(username)
+        if not existing:
+            existing = Driver(username=username)
+            db.session.add(existing)
+        existing.first_name = d.get('first_name', '')
+        existing.last_name = d.get('last_name', '')
+        existing.license_plate = d.get('license_plate', '')
+
+    # ---- Bookings (full replace) ----
+    Booking.query.delete()
+    for b in data.get('bookings', []):
+        db.session.add(Booking(
+            user_id=b.get('user_id', ''),
+            driver_id=b.get('driver_id', 'unassigned'),
+            date_time=b.get('date_time', ''),
+            pickup=b.get('pickup', ''),
+            dropoff=b.get('dropoff', ''),
+            status=b.get('status', 'unassigned'),
+            trip_start_time=b.get('trip_start_time'),
+            trip_end_time=b.get('trip_end_time'),
+        ))
+
+    # ---- Waybills + Trip history (per driver) ----
+    for username, d in data.get('drivers', {}).items():
+        # Waybills: full replace for this driver
+        Waybill.query.filter_by(driver_id=username).delete()
+        for w in d.get('waybills', []):
+            db.session.add(Waybill(
+                driver_id=username,
+                date=w.get('Date', '') or w.get('date', ''),
+                time=w.get('Time', '') or w.get('time', ''),
+                pickup=w.get('Pickup', '') or w.get('pickup', ''),
+                dropoff=w.get('Dropoff', '') or w.get('dropoff', ''),
+                cost=float(w.get('Cost', 0) or w.get('cost', 0) or 0),
+                route=w.get('Route', '') or w.get('route', ''),
+            ))
+
+        # Trip history: full replace for this driver
+        TripHistory.query.filter_by(driver_id=username).delete()
+        for t in d.get('trip_history', []):
+            db.session.add(TripHistory(
+                driver_id=username,
+                date=t.get('date', '') or t.get('Date', ''),
+                time=t.get('time', '') or t.get('Time', ''),
+                pickup=t.get('pickup', '') or t.get('Pickup', ''),
+                dropoff=t.get('dropoff', '') or t.get('Dropoff', ''),
+                cost=float(t.get('cost', 0) or t.get('Cost', 0) or 0),
+                route=t.get('route', '') or t.get('Route', ''),
+            ))
+
+    db.session.commit()
 
 
 # Initialize All Plugins
@@ -220,7 +335,8 @@ def admin_add_agent():
     name = request.form['name']
     password = request.form['password']
     registered_address = request.form.get('registered_address', '')
-    initial_allowance = float(request.form.get('initial_allowance', 0))
+    initial_allowance_raw = request.form.get('initial_allowance', '').strip()
+    initial_allowance = float(initial_allowance_raw) if initial_allowance_raw else 0.0
 
     data = load_data()
     if username in data['users']:
@@ -248,7 +364,8 @@ def admin_apply_penalty():
         return "Unauthorized", 403
 
     agent_id = request.form['agent_id']
-    penalty_amount = float(request.form.get('penalty_amount', 50.00))
+    penalty_amount_raw = request.form.get('penalty_amount', '').strip()
+    penalty_amount = float(penalty_amount_raw) if penalty_amount_raw else 50.00
     reason = request.form.get('reason', 'Penalty applied by Admin')
 
     data = load_data()
@@ -417,32 +534,147 @@ def upload_waybill():
     if driver_id not in data.get('drivers', {}):
         return "Driver not found", 404
 
+    # --- Read and normalize ---
+    def norm(s):
+        return (s or '').strip().lower().replace('_', ' ')
+
+    def pick(row_norm, *candidates):
+        for c in candidates:
+            key = norm(c)
+            if key in row_norm and row_norm[key] not in (None, ''):
+                return row_norm[key]
+        return ''
+
+    def split_datetime(value):
+        """'2026-09-13 18:00' or '2026-09-13T18:00' -> ('2026-09-13', '18:00')"""
+        if not value:
+            return '', ''
+        s = str(value).strip()
+        for sep in ('T', ' '):
+            if sep in s:
+                a, b = s.split(sep, 1)
+                return a.strip(), b.strip()
+        return s, ''
+
     try:
-        waybill_content = waybill_file.stream.read().decode('utf-8')
-        raw_waybill_data = list(csv.DictReader(io.StringIO(waybill_content)))
-
-        # TRANSFORM DATA - THIS FIXES THE UNDEFINED ISSUE
-        transformed_waybill_data = []
-        for row in raw_waybill_data:
-            transformed_row = {
-                'Date': row.get('Date') or row.get('date') or '',
-                'Time': row.get('Time') or row.get('time') or '',
-                'Pickup': row.get('Pickup') or row.get('pickup') or row.get('From') or '',
-                'Dropoff': row.get('Dropoff') or row.get('dropoff') or row.get('To') or '',
-                'Cost': float(row.get('Cost') or row.get('cost') or 0),
-                'Driver_ID': row.get('Driver_ID') or row.get('driver_id') or driver_id,
-                'Route': row.get('Route') or row.get('route') or f"{row.get('Pickup', '')} to {row.get('Dropoff', '')}"
-            }
-            transformed_waybill_data.append(transformed_row)
-
+        raw = waybill_file.stream.read().decode('utf-8-sig')
+        raw_rows = list(csv.DictReader(io.StringIO(raw)))
     except Exception as e:
-        return f"Error processing CSV: {e}", 400
+        return f"Error reading CSV: {e}", 400
 
-    if 'waybills' not in data['drivers'][driver_id]:
-        data['drivers'][driver_id]['waybills'] = []
+    if not raw_rows:
+        return "CSV is empty", 400
 
-    data['drivers'][driver_id]['waybills'].extend(transformed_waybill_data)
+    transformed = []
+    for row in raw_rows:
+        # Normalize keys: lowercase, strip, underscores -> spaces
+        row_norm = {norm(k): v for k, v in row.items()}
+
+        # Date and Time
+        date_val = pick(row_norm, 'date', 'trip date', 'booking date')
+        time_val = pick(row_norm, 'time', 'trip time', 'booking time')
+
+        # Combined 'date/time' or 'datetime' column
+        combined = pick(row_norm, 'date/time', 'datetime', 'date time',
+                        'trip start time', 'start time')
+        if combined and (not date_val or not time_val):
+            d, t = split_datetime(combined)
+            date_val = date_val or d
+            time_val = time_val or t
+
+        # Pickup
+        pickup = pick(row_norm, 'pickup', 'from', 'origin',
+                      'pickup location', 'start')
+
+        # Dropoff
+        dropoff = pick(row_norm, 'dropoff', 'to', 'destination',
+                       'dropoff location', 'end')
+
+        # Cost
+        cost_raw = pick(row_norm, 'cost', 'amount', 'price', 'fare', 'charge')
+        try:
+            cost = float(str(cost_raw).replace('R', '').replace(',', '').strip() or 0)
+        except ValueError:
+            cost = 0.0
+
+        # Route
+        route = pick(row_norm, 'route', 'trip', 'description')
+        if not route:
+            route = f"{pickup} to {dropoff}" if pickup and dropoff else ''
+
+        transformed.append({
+            'Date': date_val,
+            'Time': time_val,
+            'Pickup': pickup,
+            'Dropoff': dropoff,
+            'Cost': cost,
+            'Driver_ID': driver_id,
+            'Route': route,
+        })
+
+    # Replace the driver's waybills with this batch (idempotent upload)
+    data['drivers'][driver_id]['waybills'] = transformed
     save_data(data)
+
+    return redirect(url_for('admin_dashboard'))
+
+
+@app.route('/admin_process_waybills/<driver_id>', methods=['POST'])
+@login_required
+def admin_process_waybills(driver_id):
+    if not current_user.is_authenticated or not current_user.is_admin:
+        return "Unauthorized", 403
+
+    data = load_data()
+    driver_data = data.get('drivers', {}).get(driver_id)
+    if not driver_data:
+        return "Driver not found", 404
+
+    pending = driver_data.get('waybills', [])
+    if pending:
+        driver_data.setdefault('trip_history', [])
+        # Convert waybill schema (Date/Time/Pickup/...) to trip history schema (date/time/...)
+        for w in pending:
+            driver_data['trip_history'].append({
+                'date': w.get('Date', '') or w.get('date', ''),
+                'time': w.get('Time', '') or w.get('time', ''),
+                'pickup': w.get('Pickup', '') or w.get('pickup', ''),
+                'dropoff': w.get('Dropoff', '') or w.get('dropoff', ''),
+                'cost': float(w.get('Cost', 0) or w.get('cost', 0) or 0),
+                'route': w.get('Route', '') or w.get('route', ''),
+            })
+        driver_data['waybills'] = []
+        save_data(data)
+
+    return redirect(url_for('admin_dashboard'))
+
+
+@app.route('/admin_assign_driver/<int:booking_id>', methods=['POST'])
+@login_required
+def admin_assign_driver(booking_id):
+    if not current_user.is_authenticated or not current_user.is_admin:
+        return "Unauthorized", 403
+
+    driver_id = request.form.get('driver_id', '').strip()
+    if not driver_id:
+        return "Missing driver_id", 400
+
+    data = load_data()
+    drivers = data.get('drivers', {})
+    if driver_id not in drivers:
+        return "Driver not found", 404
+
+    # Find booking by its DB id (booking_id is the Booking.id integer)
+    from models import db as _db, Booking as _Booking
+    booking = _Booking.query.get(booking_id)
+    if not booking:
+        return "Booking not found", 404
+
+    booking.driver_id = driver_id
+    if booking.status == 'unassigned':
+        booking.status = 'assigned'
+    _db.session.commit()
+
     return redirect(url_for('admin_dashboard'))
 
 
@@ -678,14 +910,7 @@ def get_driver_waybills():
     data = load_data()
     driver_id = current_user.get_id()
     driver_data = data.get('drivers', {}).get(driver_id, {})
-    waybills_to_display = driver_data.get('waybills', [])
-
-    if waybills_to_display:
-        driver_data.setdefault('trip_history', [])
-        driver_data['trip_history'].extend(waybills_to_display)
-        driver_data['waybills'].clear()
-        save_data(data)
-    return jsonify(waybills_to_display)
+    return jsonify(driver_data.get('waybills', []))
 
 
 @app.route('/get_driver_trip_history')

@@ -135,7 +135,7 @@
         <thead>
             <tr>
                 <th>Driver ID</th><th>Name</th><th>Plate</th>
-                <th>Trips</th><th>Actions</th>
+                <th>Waybills</th><th>Trips</th><th>Actions</th>
             </tr>
         </thead>
         <tbody>
@@ -144,6 +144,19 @@
                 <td>{{ did }}</td>
                 <td>{{ d.first_name }} {{ d.last_name }}</td>
                 <td>{{ d.license_plate }}</td>
+                <td>
+                    {{ d.waybills|length }}
+                    {% if d.waybills|length > 0 %}
+                        <form method="POST"
+                              action="{{ url_for('admin_process_waybills', driver_id=did) }}"
+                              class="d-inline ms-2">
+                            <button class="btn btn-sm btn-outline-primary"
+                                    title="Move pending waybills into trip history">
+                                Process
+                            </button>
+                        </form>
+                    {% endif %}
+                </td>
                 <td>{{ d.trip_history|length }}</td>
                 <td>
                     <a class="btn btn-sm btn-outline-secondary"
@@ -199,7 +212,7 @@
         <thead>
             <tr>
                 <th>User</th><th>Driver</th><th>Date/Time</th>
-                <th>From</th><th>To</th><th>Status</th>
+                <th>From</th><th>To</th><th>Status</th><th>Assign</th>
             </tr>
         </thead>
         <tbody>
@@ -218,6 +231,29 @@
                         {% else %}bg-info text-dark{% endif %}">
                         {{ b.status }}
                     </span>
+                </td>
+                <td>
+                    {% if b.status in ['unassigned', 'assigned'] %}
+                    <form method="POST"
+                          action="{{ url_for('admin_assign_driver', booking_id=b.id) }}"
+                          class="d-flex gap-1">
+                        <select name="driver_id" class="form-select form-select-sm" required>
+                            <option value="" disabled
+                                {% if not b.driver_id or b.driver_id == 'unassigned' %}selected{% endif %}>
+                                Choose driver…
+                            </option>
+                            {% for did, d in all_drivers.items() %}
+                                <option value="{{ did }}"
+                                    {% if b.driver_id == did %}selected{% endif %}>
+                                    {{ did }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                        <button class="btn btn-sm btn-primary" type="submit">Set</button>
+                    </form>
+                    {% else %}
+                        <span class="text-muted small">—</span>
+                    {% endif %}
                 </td>
             </tr>
         {% endfor %}

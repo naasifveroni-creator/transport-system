@@ -1,44 +1,28 @@
-import sqlite3
+from models import Booking, Driver, DBUser as User
 
 
 class BusinessAnalytics:
-    def __init__(self, db_path="transport.db"):
-        self.db_path = db_path
-
-    def _connect(self):
-        return sqlite3.connect(self.db_path)
+    def __init__(self, db_path=None):
+        pass
 
     def get_dashboard_metrics(self):
-        metrics = {
-            "total_bookings": 0,
-            "completed_bookings": 0,
-            "in_progress_bookings": 0,
-            "unassigned_bookings": 0,
-            "total_drivers": 0,
-            "total_users": 0,
-            "completion_rate": 0.0,
-        }
-        try:
-            with self._connect() as conn:
-                cur = conn.cursor()
-                cur.execute("SELECT status, COUNT(*) FROM bookings GROUP BY status")
-                for status, count in cur.fetchall():
-                    metrics["total_bookings"] += count
-                    if status == "completed":
-                        metrics["completed_bookings"] = count
-                    elif status == "in-progress":
-                        metrics["in_progress_bookings"] = count
-                    elif status == "unassigned":
-                        metrics["unassigned_bookings"] = count
-                cur.execute("SELECT COUNT(*) FROM drivers")
-                metrics["total_drivers"] = cur.fetchone()[0]
-                cur.execute("SELECT COUNT(*) FROM users")
-                metrics["total_users"] = cur.fetchone()[0]
-        except sqlite3.OperationalError:
-            pass
+        total_bookings = Booking.query.count()
+        completed = Booking.query.filter_by(status='completed').count()
+        in_progress = Booking.query.filter_by(status='in-progress').count()
+        unassigned = Booking.query.filter_by(status='unassigned').count()
+        total_drivers = Driver.query.count()
+        total_users = User.query.count()
 
-        if metrics["total_bookings"]:
-            metrics["completion_rate"] = round(
-                metrics["completed_bookings"] / metrics["total_bookings"] * 100, 2
-            )
-        return metrics
+        completion_rate = 0.0
+        if total_bookings:
+            completion_rate = round(completed / total_bookings * 100, 2)
+
+        return {
+            "total_bookings": total_bookings,
+            "completed_bookings": completed,
+            "in_progress_bookings": in_progress,
+            "unassigned_bookings": unassigned,
+            "total_drivers": total_drivers,
+            "total_users": total_users,
+            "completion_rate": completion_rate,
+        }
