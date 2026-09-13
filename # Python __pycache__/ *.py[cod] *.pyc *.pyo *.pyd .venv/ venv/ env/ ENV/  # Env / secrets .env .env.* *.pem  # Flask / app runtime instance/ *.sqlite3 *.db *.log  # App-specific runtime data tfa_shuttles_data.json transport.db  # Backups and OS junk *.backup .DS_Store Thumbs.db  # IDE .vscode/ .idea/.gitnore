@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+ENV/
+
+# Env / secrets
+.env
+.env.*
+*.pem
+
+# Flask / app runtime
+instance/
+*.sqlite3
+*.db
+*.log
+
+# App-specific runtime data
+tfa_shuttles_data.json
+transport.db
+
+# Backups and OS junk
+*.backup
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
