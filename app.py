@@ -44,8 +44,11 @@ app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"pool_pre_ping": True}
 
 db.init_app(app)
 
-with app.app_context():
-    db.create_all()
+from flask_migrate import Migrate
+migrate = Migrate(app, db)
+
+# with app.app_context():
+#     db.create_all()  # Disabled for migrations
 
 
 # Configure Flask-Login
