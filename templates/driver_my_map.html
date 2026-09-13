@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}My Map — TFA Shuttles{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="mb-0">My Assigned Trips</h2>
+    <a class="btn btn-outline-secondary btn-sm"
+       href="{{ url_for('driver_dashboard') }}">Back to Trips</a>
+</div>
+
+{% if stops %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<div id="driver-map" style="height: 550px; border-radius: 8px; border: 1px solid #ddd;"></div>
+
+<h4 class="mt-4">Trip list</h4>
+<table class="table table-sm align-middle">
+    <thead>
+        <tr>
+            <th>#</th>
+            <th>Time</th>
+            <th>User</th>
+            <th>Pickup</th>
+            <th>Dropoff</th>
+            <th>Status</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for s in stops %}
+        <tr>
+            <td><span class="badge bg-primary">{{ loop.index }}</span></td>
+            <td>{{ s.date_time }}</td>
+            <td>{{ s.user_id }}</td>
+            <td>{{ s.pickup }}</td>
+            <td>{{ s.dropoff }}</td>
+            <td>
+                <span class="badge
+                    {% if s.status == 'in-progress' %}bg-warning text-dark
+                    {% else %}bg-info text-dark{% endif %}">
+                    {{ s.status }}
+                </span>
+            </td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+
+<script>
+const stops = {{ stops|tojson }};
+const map = L.map('driver-map');
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+    attribution: '© Esri',
+    maxZoom: 19,
+}).addTo(map);
+
+const bounds = [];
+
+stops.forEach((s, i) => {
+    const color = s.status === 'in-progress' ? '#fd7e14' : '#0d6efd';
+
+    // Pickup marker with numbered icon
+    if (s.pickup_lat != null && s.pickup_lng != null) {
+        const p = [s.pickup_lat, s.pickup_lng];
+        bounds.push(p);
+        L.marker(p, {
+            icon: L.divIcon({
+                className: '',
+                html: `<div style="background:${color};color:white;width:26px;height:26px;
+                        border-radius:50%;display:flex;align-items:center;justify-content:center;
+                        font-size:12px;font-weight:bold;border:2px solid white;
+                        box-shadow:0 0 4px rgba(0,0,0,0.4);">${i+1}</div>`,
+                iconSize: [26, 26],
+                iconAnchor: [13, 13],
+            }),
+        }).addTo(map).bindPopup(
+            `<b>Trip #${i+1} — Pickup</b><br>${s.pickup}<br>User: ${s.user_id}<br>Time: ${s.date_time}`
+        );
+    }
+
+    // Dropoff marker
+    if (s.dropoff_lat != null && s.dropoff_lng != null) {
+        const d = [s.dropoff_lat, s.dropoff_lng];
+        bounds.push(d);
+        L.circleMarker(d, {
+            radius: 8, color: color, fillColor: color, fillOpacity: 0.5, weight: 2,
+        }).addTo(map).bindPopup(
+            `<b>Trip #${i+1} — Dropoff</b><br>${s.dropoff}<br>User: ${s.user_id}`
+        );
+    }
+
+    // Connecting line
+    if (s.pickup_lat != null && s.dropoff_lat != null) {
+        L.polyline([[s.pickup_lat, s.pickup_lng], [s.dropoff_lat, s.dropoff_lng]], {
+            color, weight: 3, opacity: 0.7,
+        }).addTo(map);
+    }
+});
+
+if (bounds.length) {
+    if (bounds.length === 1) {
+        map.setView(bounds[0], 14);
+    } else {
+        map.fitBounds(bounds, { padding: [40, 40] });
+    }
+} else {
+    map.setView([-33.9249, 18.4241], 12);
+}
+</script>
+
+{% else %}
+<div class="alert alert-info">
+    You have no assigned trips right now.
+</div>
+{% endif %}
+{% endblock %}

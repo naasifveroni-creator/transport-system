@@ -148,6 +148,7 @@ class Invoice(db.Model):
     __tablename__ = 'invoices'
 
     id = db.Column(db.Integer, primary_key=True)
+    booking_id = db.Column(db.Integer, nullable=True, index=True)
     driver_id = db.Column(db.String(80), nullable=False)
     trip_date = db.Column(db.String(40), default='')
     trip_time = db.Column(db.String(40), default='')
@@ -161,6 +162,7 @@ class Invoice(db.Model):
     def to_dict(self):
         return {
             'id': self.id,
+            'booking_id': self.booking_id,
             'driver_id': self.driver_id,
             'trip_date': self.trip_date,
             'trip_time': self.trip_time,

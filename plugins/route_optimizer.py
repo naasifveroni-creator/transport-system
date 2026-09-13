@@ -45,6 +45,62 @@ class RouteOptimizer:
                 matched.append(b)
         return matched
 
+    def plan_from_booking_ids(self, plan_date, booking_ids, driver_id=''):
+        """Plan a route from an explicit list of booking IDs."""
+        bookings = Booking.query.filter(Booking.id.in_(booking_ids)).all()
+        if not bookings:
+            return None
+
+        # Resolve missing coords
+        for b in bookings:
+            if b.pickup_lat is None or b.pickup_lng is None:
+                c = self._resolve_coords(b.pickup)
+                if c:
+                    b.pickup_lat, b.pickup_lng = c
+            if b.dropoff_lat is None or b.dropoff_lng is None:
+                c = self._resolve_coords(b.dropoff)
+                if c:
+                    b.dropoff_lat, b.dropoff_lng = c
+        db.session.commit()
+
+        stops = self._stops_from_bookings(bookings)
+        skipped = []
+        for b in bookings:
+            if b.pickup_lat is None or b.dropoff_lat is None:
+                skipped.append({
+                    'booking_id': b.id,
+                    'user_id': b.user_id,
+                    'pickup': b.pickup,
+                    'dropoff': b.dropoff,
+                    'reason': 'missing coordinates',
+                })
+
+        if not stops:
+            return None
+
+        ordered = self._solve_nearest_neighbor(stops)
+        km, mins = self._route_distance(ordered)
+
+        plan = RoutePlan(
+            plan_date=plan_date,
+            driver_id=driver_id or '',
+            stops_json=json.dumps({
+                'driver_groups': [{
+                    'driver_id': driver_id or 'unassigned',
+                    'stops': ordered,
+                    'distance_km': km,
+                    'time_min': mins,
+                }],
+                'skipped': skipped,
+            }),
+            total_distance_km=km,
+            total_time_min=mins,
+            created_at=datetime.now().isoformat(),
+        )
+        db.session.add(plan)
+        db.session.commit()
+        return self._plan_to_dict(plan)
+
     def plan_for_date(self, plan_date):
         bookings = self.get_bookings_for_date(plan_date)
         if not bookings:

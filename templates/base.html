@@ -32,9 +32,11 @@
                     <li class="nav-item"><a class="nav-link" href="{{ url_for('admin_billing') }}">Billing</a></li>
                     <li class="nav-item"><a class="nav-link" href="{{ url_for('admin_route_optimizer') }}">Routes</a></li>
                     <li class="nav-item"><a class="nav-link" href="{{ url_for('admin_live_tracking') }}">Tracking</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('admin_tracking_history') }}">History</a></li>
                 {% elif current_user.is_driver %}
                     <li class="nav-item"><a class="nav-link" href="{{ url_for('driver_dashboard') }}">My Trips</a></li>
                     <li class="nav-item"><a class="nav-link" href="{{ url_for('driver_location') }}">Share Location</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('driver_my_map') }}">My Map</a></li>
                 {% else %}
                     <li class="nav-item"><a class="nav-link" href="{{ url_for('user_dashboard') }}">My Bookings</a></li>
                     <li class="nav-item"><a class="nav-link" href="{{ url_for('booking') }}">Book a Shuttle</a></li>

@@ -31,7 +31,13 @@
 
 <div class="card mb-4">
     <div class="card-body">
-        <h5 class="card-title">Plan a route</h5>
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="card-title mb-0">Plan a route</h5>
+            <a class="btn btn-outline-primary btn-sm"
+               href="{{ url_for('admin_route_optimizer_picker') }}">
+                Build custom route →
+            </a>
+        </div>
         <form method="POST" action="{{ url_for('admin_route_optimizer') }}"
               class="row g-2 align-items-end">
             <div class="col-md-5">

@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}Tracking History — TFA Shuttles{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="mb-0">Tracking History</h2>
+    <a class="btn btn-outline-secondary btn-sm"
+       href="{{ url_for('admin_live_tracking') }}">Live view</a>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="GET" action="{{ url_for('admin_tracking_history') }}"
+              class="row g-2 align-items-end">
+            <div class="col-md-4">
+                <label class="form-label small">Driver</label>
+                <select class="form-select" name="driver_id" required>
+                    <option value="">— pick a driver —</option>
+                    {% for d in drivers %}
+                        <option value="{{ d }}" {% if d == driver_id %}selected{% endif %}>
+                            {{ d }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small">Time window</label>
+                <select class="form-select" name="window">
+                    <option value="2h"    {% if window == '2h' %}selected{% endif %}>Last 2 hours</option>
+                    <option value="24h"   {% if window == '24h' %}selected{% endif %}>Last 24 hours</option>
+                    <option value="7d"    {% if window == '7d' %}selected{% endif %}>Last 7 days</option>
+                    <option value="today" {% if window == 'today' %}selected{% endif %}>Today</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <button class="btn btn-primary w-100" type="submit">Load</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% if driver_id and positions %}
+<div class="row g-3 mb-3">
+    <div class="col-md-3">
+        <div class="card stat-card"><div class="card-body">
+            <div class="text-muted small">Positions</div>
+            <div class="fs-3">{{ positions|length }}</div>
+        </div></div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card"><div class="card-body">
+            <div class="text-muted small">First fix</div>
+            <div class="small">{{ positions[0].recorded_at[:19] }}</div>
+        </div></div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card"><div class="card-body">
+            <div class="text-muted small">Last fix</div>
+            <div class="small">{{ positions[-1].recorded_at[:19] }}</div>
+        </div></div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card"><div class="card-body">
+            <div class="text-muted small">Peak speed (km/h)</div>
+            <div class="fs-3">{{ '%.1f'|format(positions|map(attribute='speed')|max) }}</div>
+        </div></div>
+    </div>
+</div>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<div id="history-map" style="height: 500px; border-radius: 8px; border: 1px solid #ddd;"></div>
+
+<h4 class="mt-4">All positions</h4>
+<div class="table-responsive" style="max-height: 300px; overflow: auto;">
+    <table class="table table-sm align-middle">
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Time</th>
+                <th>Latitude</th>
+                <th>Longitude</th>
+                <th>Speed (km/h)</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for p in positions %}
+            <tr>
+                <td>{{ loop.index }}</td>
+                <td>{{ p.recorded_at[:19] }}</td>
+                <td>{{ '%.5f'|format(p.lat) }}</td>
+                <td>{{ '%.5f'|format(p.lng) }}</td>
+                <td>{{ '%.1f'|format(p.speed) }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<script>
+const positions = {{ positions|tojson }};
+const map = L.map('history-map');
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+    attribution: '© Esri',
+    maxZoom: 19,
+}).addTo(map);
+
+if (positions.length) {
+    // Trail
+    const line = positions.map(p => [p.lat, p.lng]);
+    L.polyline(line, { color: '#0d6efd', weight: 3, opacity: 0.7 }).addTo(map);
+
+    // Start / end markers
+    L.marker([positions[0].lat, positions[0].lng], {
+        icon: L.divIcon({
+            className: '',
+            html: '<div style="background:#198754;color:white;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:bold;border:2px solid white;box-shadow:0 0 4px rgba(0,0,0,0.4);">START</div>',
+            iconSize: [28, 28],
+            iconAnchor: [14, 14],
+        }),
+    }).addTo(map);
+
+    L.marker([positions[positions.length-1].lat, positions[positions.length-1].lng], {
+        icon: L.divIcon({
+            className: '',
+            html: '<div style="background:#dc3545;color:white;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:bold;border:2px solid white;box-shadow:0 0 4px rgba(0,0,0,0.4);">END</div>',
+            iconSize: [28, 28],
+            iconAnchor: [14, 14],
+        }),
+    }).addTo(map);
+
+    // Every 10th fix as a small dot
+    positions.forEach((p, i) => {
+        if (i > 0 && i < positions.length - 1 && i % 10 === 0) {
+            L.circleMarker([p.lat, p.lng], {
+                radius: 3, color: '#0d6efd', fillOpacity: 0.8, weight: 1,
+            }).addTo(map).bindPopup(
+                `${p.recorded_at.slice(0, 19)}<br>${p.speed.toFixed(1)} km/h`
+            );
+        }
+    });
+
+    map.fitBounds(line, { padding: [40, 40] });
+} else {
+    map.setView([-33.9249, 18.4241], 12);
+}
+</script>
+
+{% elif driver_id %}
+<div class="alert alert-info">No positions for {{ driver_id }} in the selected window.</div>
+{% else %}
+<div class="alert alert-info">Pick a driver to see their history.</div>
+{% endif %}
+
+{% endblock %}

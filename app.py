@@ -584,6 +584,37 @@ def admin_dashboard():
     )
 
 
+@app.route('/driver/my_map')
+@login_required
+def driver_my_map():
+    if not current_user.is_authenticated or not current_user.is_driver:
+        return redirect(url_for('login'))
+
+    driver_id = current_user.get_id()
+    bookings = (Booking.query
+                .filter_by(driver_id=driver_id)
+                .filter(Booking.status.in_(['assigned', 'in-progress']))
+                .order_by(Booking.date_time.asc())
+                .all())
+
+    stops = []
+    for b in bookings:
+        stops.append({
+            'id': b.id,
+            'user_id': b.user_id,
+            'date_time': b.date_time,
+            'pickup': b.pickup,
+            'dropoff': b.dropoff,
+            'pickup_lat': b.pickup_lat,
+            'pickup_lng': b.pickup_lng,
+            'dropoff_lat': b.dropoff_lat,
+            'dropoff_lng': b.dropoff_lng,
+            'status': b.status,
+        })
+
+    return render_template('driver_my_map.html', stops=stops)
+
+
 @app.route('/driver_dashboard')
 @login_required
 def driver_dashboard():
@@ -1334,6 +1365,52 @@ def admin_bulk_register():
 
 
 # ===== BILLING ROUTES =====
+@app.route('/admin/invoice_booking/<int:booking_id>', methods=['POST'])
+@login_required
+def admin_invoice_booking(booking_id):
+    if not current_user.is_authenticated or not current_user.is_admin:
+        return "Unauthorized", 403
+
+    booking = Booking.query.get(booking_id)
+    if not booking:
+        return "Booking not found", 404
+
+    # Don't duplicate
+    existing = Invoice.query.filter_by(booking_id=booking_id).first()
+    if existing:
+        return redirect(url_for('admin_billing'))
+
+    # Amount: try to find a matching trip in the driver's history
+    amount = 0.0
+    route_desc = ''
+    if booking.driver_id and booking.driver_id != 'unassigned':
+        data = load_data()
+        driver = data.get('drivers', {}).get(booking.driver_id, {})
+        for trip in driver.get('trip_history', []):
+            if (trip.get('date', '') == (booking.date_time or '')[:10] and
+                trip.get('pickup', '') == booking.pickup and
+                trip.get('dropoff', '') == booking.dropoff):
+                amount = float(trip.get('cost', 0) or 0)
+                route_desc = trip.get('route', '')
+                break
+
+    invoice = Invoice(
+        booking_id=booking_id,
+        driver_id=booking.driver_id or 'unassigned',
+        trip_date=(booking.date_time or '')[:10],
+        trip_time=(booking.date_time or '')[-5:] if 'T' in (booking.date_time or '') else '',
+        pickup=booking.pickup or '',
+        dropoff=booking.dropoff or '',
+        amount=amount,
+        status='pending',
+        created_at=now_iso(),
+    )
+    db.session.add(invoice)
+    db.session.commit()
+
+    return redirect(url_for('admin_billing'))
+
+
 @app.route('/admin/billing')
 @login_required
 def admin_billing():
@@ -1509,6 +1586,68 @@ def admin_clear_tracking():
 
 
 
+@app.route('/admin/route_optimizer/pick', methods=['GET', 'POST'])
+@login_required
+def admin_route_optimizer_picker():
+    if not current_user.is_authenticated or not current_user.is_admin:
+        return redirect(url_for('login'))
+
+    data = load_data()
+    drivers = list(data.get('drivers', {}).keys())
+
+    if request.method == 'POST':
+        plan_date = request.form.get('plan_date', '').strip()
+        driver_id = request.form.get('driver_id', '').strip()
+        selected_ids = request.form.getlist('booking_ids')
+
+        if not plan_date or not selected_ids:
+            return render_template('admin_route_optimizer_pick.html',
+                                   drivers=drivers, error="Pick a date and at least one booking.")
+
+        try:
+            booking_ids = [int(x) for x in selected_ids]
+        except ValueError:
+            return render_template('admin_route_optimizer_pick.html',
+                                   drivers=drivers, error="Invalid booking IDs.")
+
+        optimizer = RouteOptimizer(coords=LOCATION_COORDS)
+        try:
+            plan = optimizer.plan_from_booking_ids(
+                plan_date=plan_date,
+                booking_ids=booking_ids,
+                driver_id=driver_id
+            )
+            if plan is None:
+                return render_template('admin_route_optimizer_pick.html',
+                                       drivers=drivers, error="No valid bookings.")
+        except Exception as e:
+            return render_template('admin_route_optimizer_pick.html',
+                                   drivers=drivers, error=f"Optimizer failed: {e}")
+        return redirect(url_for('admin_route_optimizer'))
+
+    # GET: show the picker
+    plan_date = request.args.get('date', '').strip()
+    all_bookings = Booking.query.order_by(Booking.date_time).all()
+    matching = []
+    for b in all_bookings:
+        if plan_date and not b.date_time.startswith(plan_date):
+            continue
+        matching.append({
+            'id': b.id,
+            'user_id': b.user_id,
+            'driver_id': b.driver_id,
+            'date_time': b.date_time,
+            'pickup': b.pickup,
+            'dropoff': b.dropoff,
+            'status': b.status,
+        })
+
+    return render_template('admin_route_optimizer_pick.html',
+                           drivers=drivers,
+                           bookings=matching,
+                           plan_date=plan_date)
+
+
 @app.route('/admin/route_optimizer', methods=['GET', 'POST'])
 @login_required
 def admin_route_optimizer():
@@ -1538,6 +1677,46 @@ def admin_route_optimizer():
                            overview=overview, plans=plans, error=error)
 
 # ===== LIVE TRACKING ROUTES =====
+@app.route('/admin/tracking/history')
+@login_required
+def admin_tracking_history():
+    if not current_user.is_authenticated or not current_user.is_admin:
+        return redirect(url_for('login'))
+
+    data = load_data()
+    drivers = list(data.get('drivers', {}).keys())
+
+    driver_id = request.args.get('driver_id', '').strip()
+    window = request.args.get('window', '2h')
+
+    # Compute cutoff
+    from datetime import timedelta
+    now = now_local()
+    if window == '24h':
+        cutoff = now - timedelta(hours=24)
+    elif window == '7d':
+        cutoff = now - timedelta(days=7)
+    elif window == 'today':
+        cutoff = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    else:
+        cutoff = now - timedelta(hours=2)
+
+    positions = []
+    if driver_id:
+        rows = (DriverPosition.query
+                .filter_by(driver_id=driver_id)
+                .filter(DriverPosition.recorded_at >= cutoff.isoformat())
+                .order_by(DriverPosition.id.asc())
+                .all())
+        positions = [r.to_dict() for r in rows]
+
+    return render_template('admin_tracking_history.html',
+                           drivers=drivers,
+                           driver_id=driver_id,
+                           window=window,
+                           positions=positions)
+
+
 @app.route('/admin/live_tracking')
 @login_required
 def admin_live_tracking():

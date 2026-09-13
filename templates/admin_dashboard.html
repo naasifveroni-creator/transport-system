@@ -219,7 +219,7 @@
         <thead>
             <tr>
                 <th>User</th><th>Driver</th><th>Date/Time</th>
-                <th>From</th><th>To</th><th>Status</th><th>Assign</th>
+                <th>From</th><th>To</th><th>Status</th><th>Assign</th><th>Invoice</th>
             </tr>
         </thead>
         <tbody>
@@ -257,6 +257,19 @@
                             {% endfor %}
                         </select>
                         <button class="btn btn-sm btn-primary" type="submit">Set</button>
+                    </form>
+                    {% else %}
+                        <span class="text-muted small">—</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if b.status == 'completed' %}
+                    <form method="POST"
+                          action="{{ url_for('admin_invoice_booking', booking_id=b.id) }}"
+                          class="d-inline">
+                        <button class="btn btn-sm btn-outline-success" type="submit">
+                            Invoice
+                        </button>
                     </form>
                     {% else %}
                         <span class="text-muted small">—</span>
