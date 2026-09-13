@@ -22,7 +22,7 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-fallback-key")
 
 # ---- Database setup ----
-from models import db, User as DBUser, Penalty, Driver, Booking, Waybill, TripHistory, GlobalTimeSlot, CampaignTimeSlot, Invoice, DriverPosition, RoutePlan
+from models import db, User as DBUser, Penalty, Driver, Booking, Waybill, TripHistory, GlobalTimeSlot, CampaignTimeSlot, Invoice, DriverPosition, RoutePlan, Location
 from tz_util import now_local, now_iso
 
 database_url = os.environ.get("DATABASE_URL")
@@ -97,7 +97,45 @@ LOCATION_COORDS = {
     'Train Station': (-33.922200, 18.424600),  # Cape Town Station
 }
 
+
+def get_location_coords():
+    """Return {name: (lat, lng)} from the DB, falling back to LOCATION_COORDS."""
+    try:
+        rows = Location.query.filter_by(active=True).all()
+        if rows:
+            return {r.name: (r.lat, r.lng) for r in rows}
+    except Exception:
+        pass
+    return dict(LOCATION_COORDS)
+
+
+def get_location_names():
+    """Return active location names, falling back to LOCATION_COORDS keys."""
+    try:
+        rows = Location.query.filter_by(active=True).order_by(Location.name).all()
+        if rows:
+            return [r.name for r in rows]
+    except Exception:
+        pass
+    return list(LOCATION_COORDS.keys())
+
+
 LOCATIONS = ['Blvd', 'Match Factory', 'Adderly', 'Wembly Sqr', 'Campus A', 'Campus B', 'Campus C', 'Downtown', 'Airport', 'Train Station']
+
+def _seed_locations_if_empty():
+    """Populate the locations table from LOCATION_COORDS on first boot."""
+    try:
+        if Location.query.count() == 0:
+            for name, (lat, lng) in LOCATION_COORDS.items():
+                db.session.add(Location(name=name, lat=lat, lng=lng))
+            db.session.commit()
+    except Exception as e:
+        print(f"Location seed skipped: {e}")
+
+
+with app.app_context():
+    _seed_locations_if_empty()
+
 TIME_SLOTS = ['6pm', '7pm', '8pm', '9pm', '10pm', '11pm', '12pm', '12am', '1am', '2am', '3am', '4am', '5am', '6am']
 
 
@@ -1014,14 +1052,16 @@ def booking():
     user_data = data.get('users', {}).get(user_id, {})
     user_address = user_data.get('registered_address', '') or ''
 
-    all_locations = LOCATIONS.copy()
+    all_locations = get_location_names()
     if user_address and user_address not in all_locations:
         all_locations.append(user_address)
 
+    coords_map = get_location_coords()
+
     def coords_for(location_name, current_user_data):
         """Return (lat, lng) for a location name."""
-        if location_name in LOCATION_COORDS:
-            return LOCATION_COORDS[location_name]
+        if location_name in coords_map:
+            return coords_map[location_name]
         # Match the user's own address
         if location_name == current_user_data.get('registered_address'):
             lat = current_user_data.get('registered_lat')
@@ -1150,9 +1190,135 @@ def admin_analytics():
 def admin_user_management():
     if not current_user.is_authenticated or not current_user.is_admin:
         return redirect(url_for('login'))
-    user_mgr = UserManager("transport.db")
-    users = user_mgr.get_all_users()
+    data = load_data()
+    users = data.get('users', {})
     return render_template('admin_user_management.html', users=users)
+
+
+
+
+@app.route('/admin/user/<username>/reset_password', methods=['POST'])
+@login_required
+def admin_user_reset_password(username):
+    if not current_user.is_authenticated or not current_user.is_admin:
+        return "Unauthorized", 403
+    new_pw = request.form.get('new_password', '').strip()
+    if len(new_pw) < 8:
+        return redirect(url_for('admin_user_management'))
+    data = load_data()
+    if username not in data['users']:
+        return "User not found", 404
+    data['users'][username]['password'] = generate_password_hash(new_pw)
+    save_data(data)
+    return redirect(url_for('admin_user_management'))
+
+
+@app.route('/admin/user/<username>/delete', methods=['POST'])
+@login_required
+def admin_user_delete(username):
+    if not current_user.is_authenticated or not current_user.is_admin:
+        return "Unauthorized", 403
+    if username == current_user.get_id():
+        return "Cannot delete yourself", 400
+    data = load_data()
+    if username not in data['users']:
+        return "User not found", 404
+    del data['users'][username]
+    if username in data.get('drivers', {}):
+        del data['drivers'][username]
+    data['bookings'] = [b for b in data['bookings'] if b.get('user_id') != username]
+    save_data(data)
+    return redirect(url_for('admin_user_management'))
+
+
+@app.route('/admin/user/<username>/edit', methods=['GET', 'POST'])
+@login_required
+def admin_user_edit(username):
+    if not current_user.is_authenticated or not current_user.is_admin:
+        return "Unauthorized", 403
+    data = load_data()
+    if username not in data['users']:
+        return "User not found", 404
+    u = data['users'][username]
+
+    if request.method == 'POST':
+        u['name'] = request.form.get('name', u.get('name', '')).strip()
+        u['registered_address'] = request.form.get('registered_address', '').strip()
+
+        lat = request.form.get('registered_lat', '').strip()
+        lng = request.form.get('registered_lng', '').strip()
+        try:
+            u['registered_lat'] = float(lat) if lat else None
+            u['registered_lng'] = float(lng) if lng else None
+        except ValueError:
+            pass
+
+        allowance = request.form.get('travel_allowance', '').strip()
+        try:
+            u['travel_allowance'] = float(allowance) if allowance else 0.0
+        except ValueError:
+            pass
+
+        u['is_admin'] = 'is_admin' in request.form
+        u['is_driver'] = 'is_driver' in request.form
+
+        save_data(data)
+        return redirect(url_for('admin_user_management'))
+
+    return render_template('admin_user_edit.html', username=username, user=u)
+
+
+@app.route('/admin/locations', methods=['GET', 'POST'])
+@login_required
+def admin_locations():
+    if not current_user.is_authenticated or not current_user.is_admin:
+        return "Unauthorized", 403
+
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip()
+        lat = request.form.get('lat', '').strip()
+        lng = request.form.get('lng', '').strip()
+        if name and lat and lng:
+            try:
+                lat_f, lng_f = float(lat), float(lng)
+                existing = Location.query.filter_by(name=name).first()
+                if existing:
+                    existing.lat = lat_f
+                    existing.lng = lng_f
+                    existing.active = True
+                else:
+                    db.session.add(Location(name=name, lat=lat_f, lng=lng_f, active=True))
+                db.session.commit()
+            except ValueError:
+                pass
+        return redirect(url_for('admin_locations'))
+
+    locations = Location.query.order_by(Location.name).all()
+    return render_template('admin_locations.html', locations=locations)
+
+
+@app.route('/admin/locations/<int:loc_id>/delete', methods=['POST'])
+@login_required
+def admin_location_delete(loc_id):
+    if not current_user.is_authenticated or not current_user.is_admin:
+        return "Unauthorized", 403
+    loc = Location.query.get(loc_id)
+    if loc:
+        db.session.delete(loc)
+        db.session.commit()
+    return redirect(url_for('admin_locations'))
+
+
+@app.route('/admin/locations/<int:loc_id>/toggle', methods=['POST'])
+@login_required
+def admin_location_toggle(loc_id):
+    if not current_user.is_authenticated or not current_user.is_admin:
+        return "Unauthorized", 403
+    loc = Location.query.get(loc_id)
+    if loc:
+        loc.active = not loc.active
+        db.session.commit()
+    return redirect(url_for('admin_locations'))
 
 
 @app.route('/admin/bulk_register', methods=['GET', 'POST'])

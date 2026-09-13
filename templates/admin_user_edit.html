@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Edit {{ username }} — TFA Shuttles{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-7">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <h3 class="card-title mb-3">Edit user: {{ username }}</h3>
+
+                <form method="POST"
+                      action="{{ url_for('admin_user_edit', username=username) }}">
+
+                    <div class="mb-3">
+                        <label class="form-label">Name</label>
+                        <input class="form-control" name="name"
+                               value="{{ user.name }}" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Registered address</label>
+                        <input class="form-control" name="registered_address"
+                               value="{{ user.registered_address or '' }}">
+                    </div>
+
+                    {% with picker_id='edituser',
+                            lat_name='registered_lat',
+                            lng_name='registered_lng',
+                            initial_lat=user.registered_lat,
+                            initial_lng=user.registered_lng,
+                            label='Click to set the user location on the map' %}
+                        {% include '_map_picker.html' %}
+                    {% endwith %}
+
+                    <div class="mb-3">
+                        <label class="form-label">Travel allowance (R)</label>
+                        <input class="form-control" type="number" step="0.01"
+                               name="travel_allowance"
+                               value="{{ user.get('travel_allowance', 0) }}">
+                    </div>
+
+                    <div class="mb-3 form-check">
+                        <input class="form-check-input" type="checkbox" name="is_admin"
+                               id="is_admin" {% if user.is_admin %}checked{% endif %}>
+                        <label class="form-check-label" for="is_admin">Admin</label>
+                    </div>
+                    <div class="mb-3 form-check">
+                        <input class="form-check-input" type="checkbox" name="is_driver"
+                               id="is_driver" {% if user.is_driver %}checked{% endif %}>
+                        <label class="form-check-label" for="is_driver">Driver</label>
+                    </div>
+
+                    <button class="btn btn-primary w-100" type="submit">Save changes</button>
+                    <a class="btn btn-outline-secondary w-100 mt-2"
+                       href="{{ url_for('admin_user_management') }}">Cancel</a>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

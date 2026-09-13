@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Locations — TFA Shuttles{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="mb-0">Locations</h2>
+    <a class="btn btn-outline-secondary btn-sm"
+       href="{{ url_for('admin_user_management') }}">Back to Users</a>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <h5 class="card-title">Add or update a location</h5>
+        <form method="POST" action="{{ url_for('admin_locations') }}"
+              class="row g-2 align-items-end">
+            <div class="col-md-4">
+                <label class="form-label small">Name</label>
+                <input class="form-control" name="name" required
+                       placeholder="e.g. Airport">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small">Latitude</label>
+                <input class="form-control" name="lat" required
+                       placeholder="-33.9705">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small">Longitude</label>
+                <input class="form-control" name="lng" required
+                       placeholder="18.5972">
+            </div>
+            <div class="col-md-2">
+                <button class="btn btn-primary w-100" type="submit">Save</button>
+            </div>
+        </form>
+        <div class="form-text mt-2">
+            Existing names will be updated. New names will be created.
+        </div>
+    </div>
+</div>
+
+{% if locations %}
+<div class="table-responsive">
+    <table class="table table-striped align-middle">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Latitude</th>
+                <th>Longitude</th>
+                <th>Status</th>
+                <th style="width: 200px;">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for loc in locations %}
+            <tr>
+                <td>{{ loc.name }}</td>
+                <td>{{ '%.5f'|format(loc.lat) }}</td>
+                <td>{{ '%.5f'|format(loc.lng) }}</td>
+                <td>
+                    <span class="badge {{ 'bg-success' if loc.active else 'bg-secondary' }}">
+                        {{ 'Active' if loc.active else 'Hidden' }}
+                    </span>
+                </td>
+                <td>
+                    <form method="POST"
+                          action="{{ url_for('admin_location_toggle', loc_id=loc.id) }}"
+                          class="d-inline">
+                        <button class="btn btn-sm btn-outline-secondary" type="submit">
+                            {{ 'Hide' if loc.active else 'Show' }}
+                        </button>
+                    </form>
+                    <form method="POST"
+                          action="{{ url_for('admin_location_delete', loc_id=loc.id) }}"
+                          class="d-inline"
+                          onsubmit="return confirm('Delete {{ loc.name }}?');">
+                        <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+                    </form>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="alert alert-info">
+    No locations yet. They will be seeded from defaults on next app restart.
+</div>
+{% endif %}
+{% endblock %}

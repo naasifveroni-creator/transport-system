@@ -219,3 +219,22 @@ class RoutePlan(db.Model):
             'total_time_min': self.total_time_km if False else self.total_time_min,
             'created_at': self.created_at,
         }
+
+
+class Location(db.Model):
+    __tablename__ = 'locations'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), unique=True, nullable=False)
+    lat = db.Column(db.Float, nullable=False)
+    lng = db.Column(db.Float, nullable=False)
+    active = db.Column(db.Boolean, default=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'lat': self.lat,
+            'lng': self.lng,
+            'active': self.active,
+        }
