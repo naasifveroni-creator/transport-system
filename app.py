@@ -136,6 +136,38 @@ def login():
     return render_template('login.html')
 
 
+
+@app.route('/change_password', methods=['GET', 'POST'])
+@login_required
+def change_password():
+    if request.method == 'POST':
+        current_pw = request.form.get('current_password', '')
+        new_pw = request.form.get('new_password', '')
+        confirm_pw = request.form.get('confirm_password', '')
+
+        data = load_data()
+        user_id = current_user.get_id()
+        user_data = data['users'].get(user_id)
+
+        if not user_data:
+            return render_template('change_password.html', error="User not found")
+
+        if not check_password_hash(user_data['password'], current_pw):
+            return render_template('change_password.html', error="Current password is incorrect")
+
+        if len(new_pw) < 8:
+            return render_template('change_password.html', error="New password must be at least 8 characters")
+
+        if new_pw != confirm_pw:
+            return render_template('change_password.html', error="New passwords do not match")
+
+        user_data['password'] = generate_password_hash(new_pw)
+        save_data(data)
+        return render_template('change_password.html', success="Password updated successfully. Use it next time you log in.")
+
+    return render_template('change_password.html')
+
+
 @app.route('/logout')
 @login_required
 def logout():

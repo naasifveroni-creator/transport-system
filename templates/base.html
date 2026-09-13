@@ -42,6 +42,8 @@
             <span class="navbar-text text-light me-3">
                 Logged in as <strong>{{ current_user.get_id() }}</strong>
             </span>
+            <a class="btn btn-outline-light btn-sm me-2"
+               href="{{ url_for('change_password') }}">Change Password</a>
             <a class="btn btn-outline-light btn-sm" href="{{ url_for('logout') }}">Logout</a>
         </div>
     </div>
