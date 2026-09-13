@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}User Management — TFA Shuttles{% endblock %}
+
+{% block content %}
+<h2 class="mb-3">User Management</h2>
+
+{% if users %}
+<div class="table-responsive">
+    <table class="table table-striped align-middle">
+        <thead>
+            <tr>
+                <th>Username</th>
+                <th>Name</th>
+                <th>Role</th>
+                <th>Registered address</th>
+                <th>Travel allowance</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for u in users %}
+            <tr>
+                <td>{{ u.username }}</td>
+                <td>{{ u.name }}</td>
+                <td>
+                    {% if u.is_admin %}Admin
+                    {% elif u.is_driver %}Driver
+                    {% else %}Agent{% endif %}
+                </td>
+                <td>{{ u.registered_address or '—' }}</td>
+                <td>R {{ '%.2f'|format(u.travel_allowance or 0) }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="alert alert-info">No users found.</div>
+{% endif %}
+
+<p class="text-muted small">
+    This view reads from <code>transport.db</code>. Core user records also live in
+    <code>tfa_shuttles_data.json</code> via the admin dashboard.
+</p>
+{% endblock %}
