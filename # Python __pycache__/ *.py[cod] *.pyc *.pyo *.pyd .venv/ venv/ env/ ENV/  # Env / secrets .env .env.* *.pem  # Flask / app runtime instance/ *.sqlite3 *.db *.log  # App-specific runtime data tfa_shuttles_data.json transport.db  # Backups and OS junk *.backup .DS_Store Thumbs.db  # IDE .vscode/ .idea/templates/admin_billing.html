@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Billing — TFA Shuttles{% endblock %}
+
+{% block content %}
+<h2 class="mb-3">Billing &amp; MIS</h2>
+
+<div class="row g-3">
+    <div class="col-md-3">
+        <div class="card stat-card"><div class="card-body">
+            <div class="text-muted small">Total revenue</div>
+            <div class="fs-3">R {{ '%.2f'|format(overview.total_revenue) }}</div>
+        </div></div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card"><div class="card-body">
+            <div class="text-muted small">Pending invoices</div>
+            <div class="fs-3">{{ overview.pending_invoices }}</div>
+            <div class="small text-muted">
+                R {{ '%.2f'|format(overview.pending_amount) }}
+            </div>
+        </div></div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card"><div class="card-body">
+            <div class="text-muted small">Paid invoices</div>
+            <div class="fs-3">{{ overview.paid_invoices }}</div>
+        </div></div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card"><div class="card-body">
+            <div class="text-muted small">Completion rate</div>
+            <div class="fs-3">{{ overview.completion_rate }}%</div>
+        </div></div>
+    </div>
+</div>
+
+<p class="text-muted small mt-4">
+    Billing data is currently sourced from the in-memory <code>BillingMIS</code>
+    plugin. Wire it to a database or the JSON store when you're ready.
+</p>
+{% endblock %}
