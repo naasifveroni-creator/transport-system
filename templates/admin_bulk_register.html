@@ -1,27 +1,173 @@
 {% extends "base.html" %}
-{% block title %}Bulk Register — TFA Shuttles{% endblock %}
+{% block title %}Bulk Register — {{ campaign.name }}{% endblock %}
 
 {% block content %}
-<h2 class="mb-3">Bulk Agent Registration</h2>
-
-<div class="card">
-    <div class="card-body">
-        <p class="text-muted small">
-            Paste CSV rows. Header row required. Columns:
-            <code>username,name,password,registered_address</code>
-        </p>
-
-        <form method="POST" action="{{ url_for('admin_bulk_register') }}">
-            <div class="mb-3">
-                <textarea class="form-control" name="csv_text" rows="10"
-placeholder="username,name,password,registered_address
-jsmith,John Smith,secret123,12 Main Rd
-mjones,Mary Jones,hunter2,44 Oak Ave"></textarea>
-            </div>
-            <button class="btn btn-primary" type="submit">
-                Register agents
-            </button>
-        </form>
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h2 class="mb-0">Bulk register — {{ campaign.name }}</h2>
+        <div class="small text-muted">
+            {{ campaign.business_name or '' }}
+            {% if campaign.area %} · {{ campaign.area }}{% endif %}
+        </div>
     </div>
+    <a class="btn btn-outline-secondary btn-sm"
+       href="{{ url_for('admin_campaigns') }}">← Campaigns</a>
 </div>
+
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+{% if result %}
+<div class="alert alert-success">
+    <strong>Committed.</strong>
+    {{ result.created }} created ·
+    {{ result.skipped }} skipped ·
+    {{ result.failed }} failed.
+</div>
+
+{% if result.created_users %}
+<h6>Created ({{ result.created_users|length }})</h6>
+<ul class="small">
+{% for u in result.created_users %}
+    <li>{{ u.username }} (line {{ u.line }})</li>
+{% endfor %}
+</ul>
+{% endif %}
+
+{% if result.skipped_rows %}
+<h6>Skipped ({{ result.skipped_rows|length }})</h6>
+<ul class="small">
+{% for u in result.skipped_rows %}
+    <li>Line {{ u.line }}: {{ u.username }} — {{ u.message }}</li>
+{% endfor %}
+</ul>
+{% endif %}
+
+{% if result.failed_rows %}
+<h6>Failed ({{ result.failed_rows|length }})</h6>
+<ul class="small text-danger">
+{% for u in result.failed_rows %}
+    <li>Line {{ u.line }}: {{ u.username }} — {{ u.message }}</li>
+{% endfor %}
+</ul>
+{% endif %}
+
+<a class="btn btn-primary mt-3" href="{{ url_for('admin_bulk_register', campaign_id=campaign.id) }}">
+    Register more
+</a>
+{% else %}
+
+<div class="alert alert-info small mb-3">
+    <strong>CSV columns recognised (any order, case-insensitive):</strong><br>
+    <code>username, name, password, email, phone, address, lat, lng, allowance, role</code>
+    <br>
+    Only <code>username</code> is required. Missing passwords get
+    <code>changeme123</code> (or your default below). Missing addresses fall back
+    to the campaign default. Missing coordinates get geocoded automatically.
+</div>
+
+<form method="POST">
+    <div class="row g-2 mb-3">
+        <div class="col-md-4">
+            <label class="form-label small">Default password (optional)</label>
+            <input class="form-control" type="text" name="default_password"
+                   placeholder="changeme123">
+        </div>
+        <div class="col-md-8 d-flex align-items-end">
+            <button class="btn btn-outline-primary me-2" name="action" value="preview">
+                Preview
+            </button>
+            <button class="btn btn-primary"
+                    name="action" value="commit"
+                    onclick="return confirm('Commit these users to the database?');">
+                Preview &amp; commit
+            </button>
+        </div>
+    </div>
+
+    <label class="form-label small">Paste CSV rows</label>
+    <textarea class="form-control font-monospace" name="csv_text" rows="14"
+placeholder="username,name,password,address,lat,lng,allowance,role
+jsmith,John Smith,secret1234,12 Main Rd,,-33.9249,18.4241,100,agent
+mjones,Mary Jones,hunter2,44 Oak Ave,,,,50,agent">{{ csv_text or '' }}</textarea>
+</form>
+
+{% if report %}
+<hr class="my-4">
+<h4>Preview — {{ campaign.name }}</h4>
+
+<div class="row g-3 mb-3">
+    <div class="col-md-3"><div class="card stat-card"><div class="card-body">
+        <div class="text-muted small">Total rows</div>
+        <div class="fs-3">{{ report.summary.total }}</div>
+    </div></div></div>
+    <div class="col-md-3"><div class="card stat-card"><div class="card-body">
+        <div class="text-muted small text-success">Ready</div>
+        <div class="fs-3 text-success">{{ report.summary.ok }}</div>
+    </div></div></div>
+    <div class="col-md-3"><div class="card stat-card"><div class="card-body">
+        <div class="text-muted small text-warning">Duplicates</div>
+        <div class="fs-3 text-warning">{{ report.summary.duplicate }}</div>
+    </div></div></div>
+    <div class="col-md-3"><div class="card stat-card"><div class="card-body">
+        <div class="text-muted small text-danger">Errors</div>
+        <div class="fs-3 text-danger">{{ report.summary.error }}</div>
+    </div></div></div>
+</div>
+
+<div class="table-responsive">
+    <table class="table table-sm align-middle">
+        <thead>
+            <tr>
+                <th>Line</th>
+                <th>Status</th>
+                <th>Username</th>
+                <th>Name</th>
+                <th>Address</th>
+                <th>Lat/Lng</th>
+                <th>Allowance</th>
+                <th>Role</th>
+                <th>Message</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for r in report.rows %}
+            <tr class="{% if r.status == 'error' %}table-danger{% elif r.status == 'duplicate' %}table-warning{% endif %}">
+                <td>{{ r.line }}</td>
+                <td>
+                    {% if r.status == 'ok' %}<span class="badge bg-success">ready</span>
+                    {% elif r.status == 'duplicate' %}<span class="badge bg-warning text-dark">skip</span>
+                    {% else %}<span class="badge bg-danger">error</span>{% endif %}
+                </td>
+                <td>{{ r.username }}</td>
+                <td>{{ r.name or '—' }}</td>
+                <td>{{ r.address or '—' }}</td>
+                <td>
+                    {% if r.lat is not none and r.lng is not none %}
+                        {{ '%.4f'|format(r.lat) }}, {{ '%.4f'|format(r.lng) }}
+                    {% else %}
+                        <span class="text-muted">—</span>
+                    {% endif %}
+                </td>
+                <td>{{ r.allowance or 0 }}</td>
+                <td>{{ r.role or 'agent' }}</td>
+                <td class="small">{{ r.message }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<form method="POST">
+    <input type="hidden" name="csv_text" value="{{ csv_text or '' }}">
+    <input type="hidden" name="default_password" value="{{ request.form.get('default_password', '') }}">
+    <button class="btn btn-primary" name="action" value="commit"
+            onclick="return confirm('Commit {{ report.summary.ok }} users to the database?');">
+        Commit {{ report.summary.ok }} user(s)
+    </button>
+</form>
+{% endif %}
+
+{% endif %}
 {% endblock %}

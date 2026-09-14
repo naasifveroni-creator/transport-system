@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Campaigns — TFA Shuttles{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="mb-0">Campaigns</h2>
+    <a class="btn btn-primary" href="{{ url_for('admin_campaign_new') }}">
+        + New campaign
+    </a>
+</div>
+
+{% if campaigns %}
+<div class="table-responsive">
+    <table class="table table-striped align-middle">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Business</th>
+                <th>Area</th>
+                <th>Contact</th>
+                <th>Members</th>
+                <th>Status</th>
+                <th style="width: 320px;">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for c in campaigns %}
+            <tr>
+                <td>
+                    <strong>{{ c.name }}</strong>
+                    {% if c.description %}
+                    <div class="small text-muted">{{ c.description }}</div>
+                    {% endif %}
+                </td>
+                <td>{{ c.business_name or '—' }}</td>
+                <td>{{ c.area or '—' }}</td>
+                <td>
+                    {% if c.contact_email %}<div class="small">{{ c.contact_email }}</div>{% endif %}
+                    {% if c.contact_phone %}<div class="small">{{ c.contact_phone }}</div>{% endif %}
+                    {% if not c.contact_email and not c.contact_phone %}—{% endif %}
+                </td>
+                <td>
+                    <span class="badge bg-secondary">{{ counts.get(c.id, 0) }}</span>
+                </td>
+                <td>
+                    <span class="badge {{ 'bg-success' if c.active else 'bg-secondary' }}">
+                        {{ 'Active' if c.active else 'Paused' }}
+                    </span>
+                </td>
+                <td>
+                    <a class="btn btn-sm btn-primary"
+                       href="{{ url_for('admin_bulk_register', campaign_id=c.id) }}">
+                        Bulk register
+                    </a>
+                    <a class="btn btn-sm btn-outline-primary"
+                       href="{{ url_for('admin_campaign_edit', campaign_id=c.id) }}">
+                        Edit
+                    </a>
+                    <form method="POST"
+                          action="{{ url_for('admin_campaign_toggle', campaign_id=c.id) }}"
+                          class="d-inline">
+                        <button class="btn btn-sm btn-outline-secondary" type="submit">
+                            {{ 'Pause' if c.active else 'Activate' }}
+                        </button>
+                    </form>
+                    <form method="POST"
+                          action="{{ url_for('admin_campaign_delete', campaign_id=c.id) }}"
+                          class="d-inline"
+                          onsubmit="return confirm('Delete {{ c.name }}? Users stay, but they lose the campaign link.');">
+                        <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+                    </form>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="alert alert-info">
+    No campaigns yet. Click <strong>New campaign</strong> to create one —
+    e.g. a business, an area, or a group that will share bulk registration.
+</div>
+{% endif %}
+{% endblock %}

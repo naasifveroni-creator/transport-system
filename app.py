@@ -22,7 +22,7 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-fallback-key")
 
 # ---- Database setup ----
-from models import db, User as DBUser, Penalty, Driver, Booking, Waybill, TripHistory, GlobalTimeSlot, CampaignTimeSlot, Invoice, DriverPosition, RoutePlan, Location
+from models import db, User as DBUser, Penalty, Driver, Booking, Waybill, TripHistory, GlobalTimeSlot, CampaignTimeSlot, Invoice, DriverPosition, RoutePlan, Location, Campaign
 from tz_util import now_local, now_iso
 
 database_url = os.environ.get("DATABASE_URL")
@@ -219,6 +219,7 @@ def save_data(data):
         existing.registered_lat = u.get('registered_lat')
         existing.registered_lng = u.get('registered_lng')
         existing.travel_allowance = float(u.get('travel_allowance', 0) or 0)
+        existing.campaign_id = u.get('campaign_id')
 
         Penalty.query.filter_by(username=username).delete()
         for p in u.get('penalties', []):
@@ -1447,16 +1448,156 @@ def admin_location_toggle(loc_id):
     return redirect(url_for('admin_locations'))
 
 
-@app.route('/admin/bulk_register', methods=['GET', 'POST'])
+
+
+# ===== CAMPAIGN + BULK REGISTRATION =====
+
+@app.route('/admin/campaigns')
 @login_required
-def admin_bulk_register():
+def admin_campaigns():
     if not current_user.is_authenticated or not current_user.is_admin:
         return redirect(url_for('login'))
+    campaigns = Campaign.query.order_by(Campaign.created_at.desc()).all()
+    counts = {}
+    for u in DBUser.query.filter(DBUser.campaign_id.isnot(None)).all():
+        counts[u.campaign_id] = counts.get(u.campaign_id, 0) + 1
+    return render_template('admin_campaigns.html', campaigns=campaigns, counts=counts)
+
+
+@app.route('/admin/campaigns/new', methods=['GET', 'POST'])
+@login_required
+def admin_campaign_new():
+    if not current_user.is_authenticated or not current_user.is_admin:
+        return redirect(url_for('login'))
+
     if request.method == 'POST':
-        csv_text = request.form.get('csv_text', '')
-        created, errors = campaign_registrar.bulk_register_from_csv(csv_text)
-        return render_template('admin_bulk_register.html', created=created, errors=errors)
-    return render_template('admin_bulk_register.html')
+        name = request.form.get('name', '').strip()
+        if not name:
+            return render_template('admin_campaign_edit.html',
+                                   campaign=None, error="Name is required.")
+        if Campaign.query.filter_by(name=name).first():
+            return render_template('admin_campaign_edit.html',
+                                   campaign=None, error="That name is taken.")
+
+        lat = request.form.get('default_lat', '').strip()
+        lng = request.form.get('default_lng', '').strip()
+        try:
+            lat_f = float(lat) if lat else None
+            lng_f = float(lng) if lng else None
+        except ValueError:
+            lat_f, lng_f = None, None
+
+        c = Campaign(
+            name=name,
+            description=request.form.get('description', '').strip(),
+            business_name=request.form.get('business_name', '').strip(),
+            contact_email=request.form.get('contact_email', '').strip(),
+            contact_phone=request.form.get('contact_phone', '').strip(),
+            area=request.form.get('area', '').strip(),
+            default_pickup=request.form.get('default_pickup', '').strip(),
+            default_dropoff=request.form.get('default_dropoff', '').strip(),
+            default_lat=lat_f,
+            default_lng=lng_f,
+            active=True,
+            created_at=now_iso(),
+            created_by=current_user.get_id(),
+        )
+        db.session.add(c)
+        db.session.commit()
+        return redirect(url_for('admin_campaigns'))
+
+    return render_template('admin_campaign_edit.html', campaign=None)
+
+
+@app.route('/admin/campaigns/<int:campaign_id>/edit', methods=['GET', 'POST'])
+@login_required
+def admin_campaign_edit(campaign_id):
+    if not current_user.is_authenticated or not current_user.is_admin:
+        return redirect(url_for('login'))
+
+    c = Campaign.query.get_or_404(campaign_id)
+
+    if request.method == 'POST':
+        c.name = request.form.get('name', c.name).strip()
+        c.description = request.form.get('description', '').strip()
+        c.business_name = request.form.get('business_name', '').strip()
+        c.contact_email = request.form.get('contact_email', '').strip()
+        c.contact_phone = request.form.get('contact_phone', '').strip()
+        c.area = request.form.get('area', '').strip()
+        c.default_pickup = request.form.get('default_pickup', '').strip()
+        c.default_dropoff = request.form.get('default_dropoff', '').strip()
+
+        lat = request.form.get('default_lat', '').strip()
+        lng = request.form.get('default_lng', '').strip()
+        try:
+            c.default_lat = float(lat) if lat else None
+            c.default_lng = float(lng) if lng else None
+        except ValueError:
+            pass
+
+        db.session.commit()
+        return redirect(url_for('admin_campaigns'))
+
+    return render_template('admin_campaign_edit.html', campaign=c)
+
+
+@app.route('/admin/campaigns/<int:campaign_id>/toggle', methods=['POST'])
+@login_required
+def admin_campaign_toggle(campaign_id):
+    if not current_user.is_authenticated or not current_user.is_admin:
+        return "Unauthorized", 403
+    c = Campaign.query.get_or_404(campaign_id)
+    c.active = not c.active
+    db.session.commit()
+    return redirect(url_for('admin_campaigns'))
+
+
+@app.route('/admin/campaigns/<int:campaign_id>/delete', methods=['POST'])
+@login_required
+def admin_campaign_delete(campaign_id):
+    if not current_user.is_authenticated or not current_user.is_admin:
+        return "Unauthorized", 403
+    c = Campaign.query.get_or_404(campaign_id)
+    DBUser.query.filter_by(campaign_id=campaign_id).update({'campaign_id': None})
+    db.session.delete(c)
+    db.session.commit()
+    return redirect(url_for('admin_campaigns'))
+
+
+@app.route('/admin/campaigns/<int:campaign_id>/bulk_register', methods=['GET', 'POST'])
+@login_required
+def admin_bulk_register(campaign_id):
+    if not current_user.is_authenticated or not current_user.is_admin:
+        return redirect(url_for('login'))
+
+    campaign = Campaign.query.get_or_404(campaign_id)
+    registrar = CampaignBulkRegistration()
+
+    if request.method == 'POST':
+        action = request.form.get('action', 'preview')
+        csv_text = request.form.get('csv_text', '').strip()
+
+        if not csv_text:
+            return render_template('admin_bulk_register.html',
+                                   campaign=campaign, error="Paste some CSV rows first.")
+
+        if action == 'preview':
+            report = registrar.preview(csv_text, campaign_id=campaign.id)
+            return render_template('admin_bulk_register.html',
+                                   campaign=campaign, report=report, csv_text=csv_text)
+
+        if action == 'commit':
+            result = registrar.commit(
+                csv_text,
+                campaign_id=campaign.id,
+                geocode=True,
+                default_password=request.form.get('default_password', '').strip() or None,
+                created_by=current_user.get_id(),
+            )
+            return render_template('admin_bulk_register.html',
+                                   campaign=campaign, result=result)
+
+    return render_template('admin_bulk_register.html', campaign=campaign)
 
 
 # ===== BILLING ROUTES =====

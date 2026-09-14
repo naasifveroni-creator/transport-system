@@ -15,6 +15,7 @@ class User(db.Model):
     registered_lat = db.Column(db.Float, nullable=True)
     registered_lng = db.Column(db.Float, nullable=True)
     travel_allowance = db.Column(db.Float, default=0.0)
+    campaign_id = db.Column(db.Integer, db.ForeignKey('campaigns.id'), nullable=True)
 
     penalties = db.relationship('Penalty', backref='user', lazy=True,
                                 cascade='all, delete-orphan')
@@ -30,6 +31,7 @@ class User(db.Model):
             'registered_lat': self.registered_lat,
             'registered_lng': self.registered_lng,
             'travel_allowance': self.travel_allowance or 0.0,
+            'campaign_id': self.campaign_id,
             'penalties': [p.to_dict() for p in self.penalties],
         }
 
@@ -239,4 +241,41 @@ class Location(db.Model):
             'lat': self.lat,
             'lng': self.lng,
             'active': self.active,
+        }
+
+
+class Campaign(db.Model):
+    __tablename__ = 'campaigns'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), unique=True, nullable=False)
+    description = db.Column(db.Text, default='')
+    business_name = db.Column(db.String(160), default='')  # who owns this campaign
+    contact_email = db.Column(db.String(160), default='')
+    contact_phone = db.Column(db.String(40), default='')
+    area = db.Column(db.String(160), default='')           # free-text area label
+    default_pickup = db.Column(db.String(120), default='')
+    default_dropoff = db.Column(db.String(120), default='')
+    default_lat = db.Column(db.Float, nullable=True)
+    default_lng = db.Column(db.Float, nullable=True)
+    active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.String(64), default='')
+    created_by = db.Column(db.String(80), default='')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description or '',
+            'business_name': self.business_name or '',
+            'contact_email': self.contact_email or '',
+            'contact_phone': self.contact_phone or '',
+            'area': self.area or '',
+            'default_pickup': self.default_pickup or '',
+            'default_dropoff': self.default_dropoff or '',
+            'default_lat': self.default_lat,
+            'default_lng': self.default_lng,
+            'active': self.active,
+            'created_at': self.created_at,
+            'created_by': self.created_by,
         }

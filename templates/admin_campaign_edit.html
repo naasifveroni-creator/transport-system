@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}{% if campaign %}Edit{% else %}New{% endif %} Campaign — TFA Shuttles{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <h3 class="card-title mb-3">
+                    {% if campaign %}Edit campaign{% else %}New campaign{% endif %}
+                </h3>
+
+                {% if error %}
+                <div class="alert alert-danger">{{ error }}</div>
+                {% endif %}
+
+                <form method="POST"
+                      action="{% if campaign %}{{ url_for('admin_campaign_edit', campaign_id=campaign.id) }}{% else %}{{ url_for('admin_campaign_new') }}{% endif %}">
+
+                    <div class="mb-3">
+                        <label class="form-label">Campaign name *</label>
+                        <input class="form-control" name="name" required
+                               value="{{ campaign.name if campaign else '' }}"
+                               placeholder="e.g. Acme Corp – Cape Town">
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Description</label>
+                        <textarea class="form-control" name="description" rows="2">{{ campaign.description if campaign else '' }}</textarea>
+                    </div>
+
+                    <div class="row g-2">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Business name</label>
+                            <input class="form-control" name="business_name"
+                                   value="{{ campaign.business_name if campaign else '' }}"
+                                   placeholder="Who owns this campaign">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Area / region</label>
+                            <input class="form-control" name="area"
+                                   value="{{ campaign.area if campaign else '' }}"
+                                   placeholder="e.g. Southern Suburbs">
+                        </div>
+                    </div>
+
+                    <div class="row g-2">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Contact email</label>
+                            <input class="form-control" type="email" name="contact_email"
+                                   value="{{ campaign.contact_email if campaign else '' }}">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Contact phone</label>
+                            <input class="form-control" name="contact_phone"
+                                   value="{{ campaign.contact_phone if campaign else '' }}">
+                        </div>
+                    </div>
+
+                    <hr class="my-3">
+                    <h6>Defaults for this campaign</h6>
+
+                    <div class="row g-2">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Default pickup</label>
+                            <input class="form-control" name="default_pickup"
+                                   value="{{ campaign.default_pickup if campaign else '' }}"
+                                   placeholder="e.g. Acme HQ, Woodstock">
+                            <div class="form-text">
+                                Used when a CSV row doesn't have an address.
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Default dropoff</label>
+                            <input class="form-control" name="default_dropoff"
+                                   value="{{ campaign.default_dropoff if campaign else '' }}"
+                                   placeholder="e.g. Boulevard Office Park">
+                        </div>
+                    </div>
+
+                    <div class="row g-2">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Default latitude</label>
+                            <input class="form-control" name="default_lat"
+                                   value="{{ campaign.default_lat if campaign and campaign.default_lat is not none else '' }}">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Default longitude</label>
+                            <input class="form-control" name="default_lng"
+                                   value="{{ campaign.default_lng if campaign and campaign.default_lng is not none else '' }}">
+                        </div>
+                    </div>
+
+                    <button class="btn btn-primary w-100" type="submit">
+                        {% if campaign %}Save changes{% else %}Create campaign{% endif %}
+                    </button>
+                    <a class="btn btn-outline-secondary w-100 mt-2"
+                       href="{{ url_for('admin_campaigns') }}">Cancel</a>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
