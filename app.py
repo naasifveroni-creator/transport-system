@@ -1347,15 +1347,25 @@ def admin_user_delete(username):
         return "Unauthorized", 403
     if username == current_user.get_id():
         return "Cannot delete yourself", 400
-    data = load_data()
-    if username not in data['users']:
+
+    u = DBUser.query.get(username)
+    if not u:
         return "User not found", 404
-    del data['users'][username]
-    if username in data.get('drivers', {}):
-        del data['drivers'][username]
-    data['bookings'] = [b for b in data['bookings'] if b.get('user_id') != username]
-    save_data(data)
+
+    # Delete their bookings
+    Booking.query.filter_by(user_id=username).delete()
+    # Delete any waybills/trip history if they were a driver
+    Driver.query.filter_by(username=username).delete()
+    Waybill.query.filter_by(driver_id=username).delete()
+    TripHistory.query.filter_by(driver_id=username).delete()
+    DriverPosition.query.filter_by(driver_id=username).delete()
+
+    db.session.delete(u)
+    db.session.commit()
+
     return redirect(url_for('admin_user_management'))
+
+
 
 
 @app.route('/admin/user/<username>/edit', methods=['GET', 'POST'])
