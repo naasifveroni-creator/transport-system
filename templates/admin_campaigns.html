@@ -27,7 +27,7 @@
         {% for c in campaigns %}
             <tr>
                 <td>
-                    <strong>{{ c.name }}</strong>
+                    <a href="{{ url_for('admin_campaign_detail', campaign_id=c.id) }}"><strong>{{ c.name }}</strong></a>
                     {% if c.description %}
                     <div class="small text-muted">{{ c.description }}</div>
                     {% endif %}

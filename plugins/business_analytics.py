@@ -321,6 +321,192 @@ class BusinessAnalytics:
             },
         }
 
+
+    # ---------- CAMPAIGN ANALYTICS ----------
+
+    def get_campaign_stats(self):
+        """Per-campaign KPIs: members, bookings, completed trips, revenue."""
+        from models import Campaign
+
+        campaigns = Campaign.query.all()
+        rows = []
+        for c in campaigns:
+            members = User.query.filter_by(campaign_id=c.id).all()
+            member_ids = [m.username for m in members]
+
+            if member_ids:
+                bookings = Booking.query.filter(Booking.user_id.in_(member_ids)).all()
+            else:
+                bookings = []
+
+            total = len(bookings)
+            completed = sum(1 for b in bookings if b.status == 'completed')
+
+            # Revenue: invoices tied to bookings belonging to this campaign
+            booking_ids = [b.id for b in bookings]
+            if booking_ids:
+                invoices = Invoice.query.filter(Invoice.booking_id.in_(booking_ids)).all()
+                paid = sum(i.amount for i in invoices if i.status == 'paid')
+                pending = sum(i.amount for i in invoices if i.status == 'pending')
+            else:
+                paid = 0
+                pending = 0
+
+            rows.append({
+                'id': c.id,
+                'name': c.name,
+                'business_name': c.business_name,
+                'area': c.area,
+                'active': c.active,
+                'members': len(members),
+                'bookings': total,
+                'completed': completed,
+                'revenue_paid': round(paid, 2),
+                'revenue_pending': round(pending, 2),
+                'avg_trips_per_member': round(total / len(members), 2) if members else 0,
+            })
+        return rows
+
+    def get_campaign_detail(self, campaign_id, start=None, end=None):
+        """Everything about one campaign."""
+        from models import Campaign
+
+        c = Campaign.query.get(campaign_id)
+        if not c:
+            return None
+
+        members = User.query.filter_by(campaign_id=campaign_id).all()
+        member_ids = [m.username for m in members]
+
+        bookings = []
+        if member_ids:
+            q = Booking.query.filter(Booking.user_id.in_(member_ids))
+            if start:
+                q = q.filter(Booking.date_time >= start)
+            if end:
+                q = q.filter(Booking.date_time <= end + 'T23:59:59')
+            bookings = q.order_by(Booking.date_time.desc()).all()
+
+        total = len(bookings)
+        completed = sum(1 for b in bookings if b.status == 'completed')
+        in_progress = sum(1 for b in bookings if b.status == 'in-progress')
+        unassigned = sum(1 for b in bookings if b.status == 'unassigned')
+
+        booking_ids = [b.id for b in bookings]
+        if booking_ids:
+            invoices = Invoice.query.filter(Invoice.booking_id.in_(booking_ids)).all()
+            paid = sum(i.amount for i in invoices if i.status == 'paid')
+            pending = sum(i.amount for i in invoices if i.status == 'pending')
+        else:
+            paid = 0
+            pending = 0
+
+        # Top users in this campaign
+        from collections import defaultdict
+        user_counts = defaultdict(int)
+        for b in bookings:
+            user_counts[b.user_id] += 1
+        top_users = sorted(user_counts.items(), key=lambda x: -x[1])[:10]
+
+        # Top routes
+        route_counts = defaultdict(int)
+        for b in bookings:
+            route_counts[f"{b.pickup} → {b.dropoff}"] += 1
+        top_routes = sorted(route_counts.items(), key=lambda x: -x[1])[:8]
+
+        # Member list with their activity
+        member_stats = []
+        for m in members:
+            m_bookings = [b for b in bookings if b.user_id == m.username]
+            m_completed = sum(1 for b in m_bookings if b.status == 'completed')
+            m_invoices = [i for i in Invoice.query.filter(
+                Invoice.booking_id.in_([b.id for b in m_bookings])
+            ).all()] if m_bookings else []
+            m_paid = sum(i.amount for i in m_invoices if i.status == 'paid')
+            member_stats.append({
+                'username': m.username,
+                'name': m.name,
+                'address': m.registered_address,
+                'allowance': m.travel_allowance,
+                'bookings': len(m_bookings),
+                'completed': m_completed,
+                'revenue_paid': round(m_paid, 2),
+            })
+        member_stats.sort(key=lambda x: -x['bookings'])
+
+        return {
+            'campaign': c.to_dict(),
+            'totals': {
+                'members': len(members),
+                'bookings': total,
+                'completed': completed,
+                'in_progress': in_progress,
+                'unassigned': unassigned,
+                'revenue_paid': round(paid, 2),
+                'revenue_pending': round(pending, 2),
+                'avg_trips_per_member': round(total / len(members), 2) if members else 0,
+            },
+            'members': member_stats,
+            'top_users': [{'username': u, 'bookings': n} for u, n in top_users],
+            'top_routes': [{'route': r, 'bookings': n} for r, n in top_routes],
+        }
+
+    def get_campaign_filter_options(self):
+        from models import Campaign
+        return [{'id': c.id, 'name': c.name} for c in Campaign.query.order_by(Campaign.name).all()]
+
+    def get_overview_metrics_by_campaign(self, campaign_id, start=None, end=None):
+        """KPIs filtered to a specific campaign's members."""
+        members = User.query.filter_by(campaign_id=campaign_id).all()
+        member_ids = [m.username for m in members]
+        if not member_ids:
+            return {
+                'total_bookings': 0, 'completed': 0, 'cancelled': 0,
+                'in_progress': 0, 'unassigned': 0, 'completion_rate': 0,
+                'total_revenue': 0, 'pending_revenue': 0, 'avg_trip_value': 0,
+                'bookings_change': 0, 'completed_change': 0, 'revenue_change': 0,
+                'period_start': start or 'all-time', 'period_end': end or 'now',
+            }
+
+        q = Booking.query.filter(Booking.user_id.in_(member_ids))
+        if start:
+            q = q.filter(Booking.date_time >= start)
+        if end:
+            q = q.filter(Booking.date_time <= end + 'T23:59:59')
+        bookings = q.all()
+
+        total = len(bookings)
+        completed = sum(1 for b in bookings if b.status == 'completed')
+        cancelled = sum(1 for b in bookings if b.status == 'cancelled')
+        in_progress = sum(1 for b in bookings if b.status == 'in-progress')
+        unassigned = sum(1 for b in bookings if b.status == 'unassigned')
+
+        booking_ids = [b.id for b in bookings]
+        if booking_ids:
+            invoices = Invoice.query.filter(Invoice.booking_id.in_(booking_ids)).all()
+            paid = sum(i.amount for i in invoices if i.status == 'paid')
+            pending = sum(i.amount for i in invoices if i.status == 'pending')
+        else:
+            paid = 0
+            pending = 0
+
+        return {
+            'total_bookings': total,
+            'completed': completed,
+            'cancelled': cancelled,
+            'in_progress': in_progress,
+            'unassigned': unassigned,
+            'completion_rate': round(completed / total * 100, 1) if total else 0,
+            'total_revenue': round(paid, 2),
+            'pending_revenue': round(pending, 2),
+            'avg_trip_value': round(paid / completed, 2) if completed else 0,
+            'bookings_change': 0,
+            'completed_change': 0,
+            'revenue_change': 0,
+            'period_start': start or 'all-time',
+            'period_end': end or 'now',
+        }
+
     # ---------- HELPERS ----------
 
     def _bookings_in_range(self, start, end):

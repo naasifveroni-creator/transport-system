@@ -15,10 +15,21 @@
         <form method="GET" action="{{ url_for('admin_analytics') }}"
               class="row g-2 align-items-end">
             <div class="col-md-3">
+                <label class="form-label small">Campaign</label>
+                <select class="form-select" name="campaign">
+                    <option value="">All campaigns</option>
+                    {% for c in campaigns %}
+                        <option value="{{ c.id }}" {% if campaign_id == c.id %}selected{% endif %}>
+                            {{ c.name }} ({{ c.members }} members)
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
                 <label class="form-label small">From</label>
                 <input class="form-control" type="date" name="start" value="{{ start }}">
             </div>
-            <div class="col-md-3">
+            <div class="col-md-2">
                 <label class="form-label small">To</label>
                 <input class="form-control" type="date" name="end" value="{{ end }}">
             </div>
@@ -271,4 +282,49 @@ barChart('routesChart',
     {{ top_routes.data|tojson }},
     '#20c997');
 </script>
+
+{# ---- Campaign breakdown ---- #}
+<h4 class="mt-4">Campaign breakdown</h4>
+{% if campaigns %}
+<div class="table-responsive">
+    <table class="table table-striped align-middle">
+        <thead>
+            <tr>
+                <th>Campaign</th>
+                <th>Business</th>
+                <th class="text-end">Members</th>
+                <th class="text-end">Bookings</th>
+                <th class="text-end">Completed</th>
+                <th class="text-end">Revenue Paid</th>
+                <th class="text-end">Avg / member</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for c in campaigns %}
+            <tr>
+                <td><strong>{{ c.name }}</strong></td>
+                <td>{{ c.business_name or '—' }}</td>
+                <td class="text-end">{{ c.members }}</td>
+                <td class="text-end">{{ c.bookings }}</td>
+                <td class="text-end">{{ c.completed }}</td>
+                <td class="text-end">R {{ '%.2f'|format(c.revenue_paid) }}</td>
+                <td class="text-end">{{ c.avg_trips_per_member }}</td>
+                <td>
+                    <a class="btn btn-sm btn-outline-primary"
+                       href="{{ url_for('admin_campaign_detail', campaign_id=c.id) }}">
+                        View
+                    </a>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="alert alert-info">
+    No campaigns yet. Create one in <a href="{{ url_for('admin_campaigns') }}">Campaigns</a>.
+</div>
+{% endif %}
+
 {% endblock %}

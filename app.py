@@ -1218,9 +1218,21 @@ def admin_analytics():
 
     start = request.args.get('start', '').strip() or None
     end = request.args.get('end', '').strip() or None
+    campaign_id = request.args.get('campaign', '').strip() or None
 
     ba = BusinessAnalytics()
-    overview = ba.get_overview_metrics(start, end)
+
+    if campaign_id:
+        try:
+            cid = int(campaign_id)
+            overview = ba.get_overview_metrics_by_campaign(cid, start, end)
+        except ValueError:
+            cid = None
+            overview = ba.get_overview_metrics(start, end)
+    else:
+        cid = None
+        overview = ba.get_overview_metrics(start, end)
+
     insights = ba.get_insights(start, end)
     revenue_trend = ba.get_revenue_trend(days=30)
     bookings_trend = ba.get_bookings_trend(days=30)
@@ -1230,6 +1242,7 @@ def admin_analytics():
     top_routes = ba.get_top_routes(limit=8, start=start, end=end)
     top_drivers = ba.get_top_drivers(limit=5, start=start, end=end)
     top_users = ba.get_top_users(limit=5, start=start, end=end)
+    campaigns = ba.get_campaign_stats()
 
     return render_template('admin_analytics.html',
                            overview=overview,
@@ -1242,9 +1255,10 @@ def admin_analytics():
                            top_routes=top_routes,
                            top_drivers=top_drivers,
                            top_users=top_users,
+                           campaigns=campaigns,
+                           campaign_id=cid,
                            start=start or '',
                            end=end or '')
-
 
 @app.route('/admin/reports')
 @login_required
@@ -1608,6 +1622,60 @@ def admin_bulk_register(campaign_id):
                                    campaign=campaign, result=result)
 
     return render_template('admin_bulk_register.html', campaign=campaign)
+
+
+@app.route('/admin/campaigns/<int:campaign_id>')
+@login_required
+def admin_campaign_detail(campaign_id):
+    if not current_user.is_authenticated or not current_user.is_admin:
+        return redirect(url_for('login'))
+
+    start = request.args.get('start', '').strip() or None
+    end = request.args.get('end', '').strip() or None
+
+    ba = BusinessAnalytics()
+    detail = ba.get_campaign_detail(campaign_id, start=start, end=end)
+    if not detail:
+        return "Campaign not found", 404
+
+    return render_template('admin_campaign_detail.html',
+                           detail=detail, start=start or '', end=end or '')
+
+
+@app.route('/admin/campaigns/<int:campaign_id>/export')
+@login_required
+def admin_campaign_export(campaign_id):
+    if not current_user.is_authenticated or not current_user.is_admin:
+        return redirect(url_for('login'))
+
+    ba = BusinessAnalytics()
+    detail = ba.get_campaign_detail(campaign_id)
+    if not detail:
+        return "Campaign not found", 404
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    writer.writerow(['Campaign', detail['campaign']['name']])
+    writer.writerow(['Business', detail['campaign']['business_name']])
+    writer.writerow(['Area', detail['campaign']['area']])
+    writer.writerow([])
+    writer.writerow(['Totals'])
+    for k, v in detail['totals'].items():
+        writer.writerow([k, v])
+    writer.writerow([])
+    writer.writerow(['Members'])
+    writer.writerow(['Username', 'Name', 'Address', 'Allowance',
+                     'Bookings', 'Completed', 'Revenue Paid'])
+    for m in detail['members']:
+        writer.writerow([m['username'], m['name'], m['address'],
+                         m['allowance'], m['bookings'],
+                         m['completed'], m['revenue_paid']])
+
+    output.seek(0)
+    filename = f"campaign_{campaign_id}_report.csv"
+    return Response(output.getvalue(), mimetype='text/csv',
+                    headers={'Content-Disposition': f'attachment;filename={filename}'})
 
 
 # ===== BILLING ROUTES =====
