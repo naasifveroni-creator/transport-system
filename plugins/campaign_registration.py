@@ -174,8 +174,9 @@ class CampaignBulkRegistration:
             return {'status': 'duplicate', 'message': 'Already exists', **row}
 
         # Auto-fill address from campaign default if row has none
-        if not row.get('address') and campaign and campaign.default_pickup:
+        if not (row.get('address') or '').strip() and campaign and campaign.default_pickup:
             row = {**row, 'address': campaign.default_pickup}
+            row['_address_from_campaign'] = True
 
         return {'status': 'ok', 'message': '', **row}
 
