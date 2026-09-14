@@ -1,12 +1,12 @@
 """
 Run before gunicorn on Render.
-- If the DB is empty, run `flask db upgrade` to create all tables.
-- If the DB has tables but no alembic_version, stamp head (mark as migrated).
-- Otherwise, upgrade to apply any new migrations.
+Always runs 'flask db upgrade'. If that fails because the DB has tables
+but no alembic_version, it stamps head instead — but only as a fallback.
 """
 import os
 import sys
-from sqlalchemy import create_engine, inspect, text
+import subprocess
+from sqlalchemy import create_engine, inspect
 
 
 def main():
@@ -15,43 +15,27 @@ def main():
         print("No DATABASE_URL — skipping migrations.")
         return 0
 
-    # Render uses postgres://, SQLAlchemy wants postgresql://
     if url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql://", 1)
 
     engine = create_engine(url)
     insp = inspect(engine)
-
     tables = insp.get_table_names()
     has_alembic = "alembic_version" in tables
 
-    # Fresh DB — let Alembic create everything
-    if not tables or (len(tables) == 1 and has_alembic and not _has_real_data(engine)):
-        print("DB looks empty — running 'flask db upgrade'")
-        os.system("flask db upgrade")
+    # If the DB has tables but no alembic_version, we need to bootstrap.
+    # Try 'upgrade' first — if it errors because tables exist, stamp head.
+    if tables and not has_alembic:
+        print("DB has tables but no alembic_version — attempting upgrade")
+        rc = subprocess.call(["flask", "db", "upgrade"])
+        if rc != 0:
+            print("Upgrade failed (expected on pre-migration DB) — stamping head")
+            subprocess.call(["flask", "db", "stamp", "head"])
+            return 0
         return 0
 
-    # Existing DB without alembic tracking — stamp it
-    if not has_alembic:
-        print("DB has tables but no alembic_version — stamping head")
-        os.system("flask db stamp head")
-        return 0
-
-    # Normal case — apply any new migrations
     print("Running 'flask db upgrade'")
-    os.system("flask db upgrade")
-    return 0
-
-
-def _has_real_data(engine):
-    """Check if the DB has actual user data beyond just alembic_version."""
-    try:
-        with engine.connect() as conn:
-            result = conn.execute(text("SELECT COUNT(*) FROM users"))
-            count = result.scalar()
-            return count > 0
-    except Exception:
-        return False
+    return subprocess.call(["flask", "db", "upgrade"])
 
 
 if __name__ == "__main__":
